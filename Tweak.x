@@ -7,6 +7,7 @@
 #import "DHHookManager.h"
 #import "DHCryptManager.h"
 #import "DHButtonManager.h"
+#import "DHAdScanner.h"
 
 static void DHInitializeDebugHelper(void) {
     @autoreleasepool {
@@ -25,13 +26,17 @@ static void DHInitializeDebugHelper(void) {
         // 4. 显示悬浮球入口
         [[DHButtonManager sharedManager] showFloatingButton];
 
-        // 5. App进入后台时清除扫描缓存，下次前台重新扫描
+        // 5. 启动时自动后台扫描，缓存结果
+        [[DHAdScanner sharedScanner] scanAllClassesWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
+            [[NSUserDefaults standardUserDefaults] setObject:[NSKeyedArchiver archivedDataWithRootObject:results] forKey:@"DHScanCache"];
+            DHLogInfo(@"自动扫描完成: %lu 条结果已缓存", (unsigned long)results.count);
+        }];
+
+        // 6. App进入后台时清除扫描缓存，下次前台重新扫描
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification
                                                           object:nil queue:nil
                                                       usingBlock:^(NSNotification *note) {
-            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHCachedScanResults"];
-            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHSmartScanCache"];
-            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHFullScanCache"];
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHScanCache"];
             DHLogDebug(@"App进入后台，已清除扫描缓存");
         }];
 
