@@ -29,22 +29,19 @@
 - (void)loadHooks {
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedHooksKey];
     if (data) {
-        NSError *err;
-        self.savedHooks = [NSKeyedUnarchiver unarchivedArrayOfClassObjects:[DHHookInfo class] fromData:data error:&err] ?: @[];
+        self.savedHooks = [NSKeyedUnarchiver unarchiveObjectWithData:data] ?: @[];
     }
     NSData *pdata = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedPatchesKey];
     if (pdata) {
-        NSError *err;
-        self.savedPatches = [NSKeyedUnarchiver unarchivedArrayOfClassObjects:[DHPatch class] fromData:pdata error:&err] ?: @[];
+        self.savedPatches = [NSKeyedUnarchiver unarchiveObjectWithData:pdata] ?: @[];
     }
 }
 
 - (void)saveHooks {
-    NSError *err;
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.savedHooks requiringSecureCoding:YES error:&err];
-    if (!err) [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHSavedHooksKey];
-    NSData *pdata = [NSKeyedArchiver archivedDataWithRootObject:self.savedPatches requiringSecureCoding:YES error:&err];
-    if (!err) [[NSUserDefaults standardUserDefaults] setObject:pdata forKey:kDHSavedPatchesKey];
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.savedHooks];
+    [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHSavedHooksKey];
+    NSData *pdata = [NSKeyedArchiver archivedDataWithRootObject:self.savedPatches];
+    [[NSUserDefaults standardUserDefaults] setObject:pdata forKey:kDHSavedPatchesKey];
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 

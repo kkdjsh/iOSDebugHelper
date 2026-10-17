@@ -32,8 +32,8 @@
         return;
     }
     NSError *err;
-    NSArray *rules = [NSKeyedUnarchiver unarchivedArrayOfClassObjects:[DHInterceptRule class] fromData:data error:&err];
-    if (err) {
+    NSArray *rules = [NSKeyedUnarchiver unarchiveTopLevelObjectWithData:data error:&err];
+    if (err || !rules) {
         DHLogError(@"规则反序列化失败: %@", err);
         rules = @[];
     }
@@ -43,12 +43,7 @@
 }
 
 - (void)saveRules {
-    NSError *err;
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.rules requiringSecureCoding:YES error:&err];
-    if (err) {
-        DHLogError(@"规则序列化失败: %@", err);
-        return;
-    }
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.rules];
     [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHRulesDefaultsKey];
     [[NSUserDefaults standardUserDefaults] setBool:self.globalEnabled forKey:kDHInterceptEnabledKey];
     [[NSUserDefaults standardUserDefaults] synchronize];

@@ -51,17 +51,16 @@ static NSString *const kDHAIConfigKey = @"DH_AIConfig";
 }
 
 - (void)saveConfig {
-    NSError *err;
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.config requiringSecureCoding:YES error:&err];
-    if (!err) [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHAIConfigKey];
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.config];
+    [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHAIConfigKey];
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)loadConfig {
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHAIConfigKey];
     if (data) {
-        NSError *err;
-        self.config = [NSKeyedUnarchiver unarchivedObjectOfClass:[DHAIConfig class] fromData:data error:&err];
+        id obj = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+        if ([obj isKindOfClass:[DHAIConfig class]]) self.config = obj;
     }
 }
 
