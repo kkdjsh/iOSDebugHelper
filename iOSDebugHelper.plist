@@ -1,0 +1,8 @@
+{
+  "Filter" : {
+    "Bundles" : ["*"]
+  },
+  "FilterDisplay" : {
+    "Name" : "iOSDebugHelper"
+  }
+}

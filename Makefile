@@ -1,0 +1,31 @@
+THEOS_PACKAGE_SCHEME = rootless
+export THEOS=/opt/theos
+
+TARGET := iphone:clang:15.4:14.0
+ARCHS = arm64 arm64e
+
+include $(THEOS)/makefiles/common.mk
+
+TWEAK_NAME = iOSDebugHelper
+
+iOSDebugHelper_FILES = Tweak.x \
+    Logger/DHLogManager.m \
+    Network/DHRuleManager.m \
+    Network/DHInterceptRule.m \
+    Network/DHNetworkInterceptor.m \
+    Hook/DHHookManager.m \
+    Hook/DHHookInfo.m \
+    Hook/DHPatch.m \
+    Crypto/DHCryptManager.m \
+    Scanner/DHAdScanner.m \
+    Scanner/DHScannerResult.m \
+    AI/DHAIManager.m \
+    UI/DHButtonManager.m \
+    UI/DHMainMenuViewController.m
+
+iOSDebugHelper_CFLAGS = -fobjc-arc -fmodules
+iOSDebugHelper_CXXFLAGS = -std=c++14
+iOSDebugHelper_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore Security JavaScriptCore AVFoundation UserNotifications WebKit SceneKit ImageIO
+iOSDebugHelper_LIBRARIES = substrate sqlite3 z
+
+include $(THEOS_MAKE_PATH)/tweak.mk

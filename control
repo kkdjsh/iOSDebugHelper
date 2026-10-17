@@ -1,0 +1,8 @@
+Package: com.debughelper.iOSDebugHelper
+Name: iOSDebugHelper
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: iOS Debug Assistant - based on FLEX framework
+Maintainer: DebugHelper
+Author: DebugHelper
+Section: Tweaks

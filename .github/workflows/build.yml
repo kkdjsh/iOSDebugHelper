@@ -1,0 +1,61 @@
+name: Build iOSDebugHelper
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Install Theos
+        run: |
+          sudo git clone --recursive https://github.com/theos/theos.git /opt/theos
+          echo "THEOS=/opt/theos" >> $GITHUB_ENV
+
+      - name: Clone FLEX dependency
+        run: |
+          mkdir -p Headers
+          git clone --depth 1 https://github.com/FLEXTool/FLEX.git Headers/FLEX
+
+      - name: Build FLEX source file list
+        run: |
+          # 收集 FLEX 所有 .m 源文件（排除 main 和 test）
+          FLEX_FILES=$(find Headers/FLEX/FLEX -name "*.m" ! -name "*Test*" ! -name "main.m" | sort)
+          echo "FLEX_FILES=$FLEX_FILES" >> $GITHUB_ENV
+          echo "FLEX source files: $(echo $FLEX_FILES | wc -w)"
+
+      - name: Build tweak
+        run: |
+          export THEOS=/opt/theos
+          # 将 FLEX 源文件追加到编译列表
+          FLEX_SOURCES=$(find Headers/FLEX/FLEX -name "*.m" ! -name "*Test*" ! -name "main.m")
+          # 动态生成 Makefile 片段
+          echo "iOSDebugHelper_FILES += $FLEX_SOURCES" >> Makefile
+          echo "iOSDebugHelper_CFLAGS += -IHeaders/FLEX" >> Makefile
+          make package THEOS=/opt/theos ARCHS="arm64 arm64e"
+
+      - name: Extract dylib from deb
+        run: |
+          mkdir -p output
+          DEB_FILE=$(ls packages/*.deb | head -1)
+          echo "Extracting from: $DEB_FILE"
+          dpkg-deb -x "$DEB_FILE" output/
+          find output/ -name "*.dylib" -exec cp {} output/iOSDebugHelper.dylib \;
+          ls -la output/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iOSDebugHelper-dylib
+          path: output/iOSDebugHelper.dylib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iOSDebugHelper-deb
+          path: packages/*.deb
