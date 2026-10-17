@@ -4,7 +4,7 @@
 //
 
 #import "DHCryptManager.h"
-#import "DHLogManager"
+#import "DHLogManager.h"
 #import <CommonCrypto/CommonCrypto.h>
 #import <substrate.h>
 #import <dlfcn.h>
@@ -43,16 +43,16 @@ static CCCryptorStatus hook_CCCrypt(CCOperation op, CCAlgorithm alg, CCOptions o
                                           dataIn, dataInLength, dataOut, dataOutAvailable, dataOutMoved);
 
     if (alg == kCCAlgorithmAES && keyLength == kCCKeySizeAES128) {
-        DHCapturedCryptOperation *op = [DHCapturedCryptOperation new];
-        op.algorithm = (options & kCCOptionECBMode) ? @"AES-ECB" : @"AES-CBC";
-        op.operation = (op == kCCEncrypt) ? @"ENCRYPT" : @"DECRYPT";
-        op.key = [NSData dataWithBytes:key length:keyLength];
-        op.iv = iv ? [NSData dataWithBytes:iv length:16] : nil;
-        op.inputData = [NSData dataWithBytes:dataIn length:dataInLength];
-        if (dataOutMoved) op.outputData = [NSData dataWithBytes:dataOut length:*dataOutMoved];
-        op.threadID = [NSString stringWithFormat:@"%x", mach_task_self()];
-        op.timestamp = [[NSDate date] timeIntervalSince1970];
-        [[DHCryptManager sharedManager] recordOperation:op];
+        DHCapturedCryptOperation *capturedOp = [DHCapturedCryptOperation new];
+        capturedOp.algorithm = (options & kCCOptionECBMode) ? @"AES-ECB" : @"AES-CBC";
+        capturedOp.operation = (op == kCCEncrypt) ? @"ENCRYPT" : @"DECRYPT";
+        capturedOp.key = [NSData dataWithBytes:key length:keyLength];
+        capturedOp.iv = iv ? [NSData dataWithBytes:iv length:16] : nil;
+        capturedOp.inputData = [NSData dataWithBytes:dataIn length:dataInLength];
+        if (dataOutMoved) capturedOp.outputData = [NSData dataWithBytes:dataOut length:*dataOutMoved];
+        capturedOp.threadID = [NSString stringWithFormat:@"%x", mach_task_self()];
+        capturedOp.timestamp = [[NSDate date] timeIntervalSince1970];
+        [[DHCryptManager sharedManager] recordOperation:capturedOp];
     }
     return result;
 }
