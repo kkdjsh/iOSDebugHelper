@@ -211,10 +211,10 @@
 @end
 
 #pragma mark - 扫描结果控制器（带搜索、分组、Hook、区间复制、缓存）
-@interface DHScanResultVC : UITableViewController <UISearchResultsUpdating>
+@interface DHScanResultVC : UITableViewController <UISearchBarDelegate>
 @property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
 @property (nonatomic, copy) NSArray *filteredResults;      // 当前显示的扁平结果
-@property (nonatomic, strong) UISearchController *searchCtrl;
+@property (nonatomic, strong) UISearchBar *searchBar;
 @end
 @implementation DHScanResultVC {
     NSTimer *_searchDebounce;
@@ -227,15 +227,12 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重新扫描" style:UIBarButtonItemStylePlain target:self action:@selector(rescan)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
-    // 搜索框常显，不随滚动隐藏
-    self.searchCtrl = [[UISearchController alloc] initWithSearchResultsController:nil];
-    self.searchCtrl.searchResultsUpdater = self;
-    self.searchCtrl.obscuresBackgroundDuringPresentation = NO;
-    self.searchCtrl.searchBar.placeholder = @"搜索类名或方法名...";
-    self.navigationItem.searchController = self.searchCtrl;
-    self.navigationItem.hidesSearchBarWhenScrolling = NO;
-    // 不显示默认取消按钮，用搜索框内的X清除，复制按钮始终保留
-    self.searchCtrl.automaticallyShowsCancelButton = NO;
+    // 直接把搜索栏放在tableView顶部，不用UISearchController，导航按钮永远在
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
+    self.searchBar.placeholder = @"搜索类名或方法名...";
+    self.searchBar.delegate = self;
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    self.tableView.tableHeaderView = self.searchBar;
 
     self.filteredResults = self.allResults;
 }
@@ -372,10 +369,10 @@
     [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
 }
 
-- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
-    // 防抖0.3秒，后台过滤避免卡顿
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    // 防抖0.3秒，后台过滤
     [_searchDebounce invalidate];
-    NSString *kw = [searchController.searchBar.text lowercaseString];
+    NSString *kw = [searchText lowercaseString];
     NSArray *all = self.allResults;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
