@@ -227,21 +227,27 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重新扫描" style:UIBarButtonItemStylePlain target:self action:@selector(rescan)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
-    // 直接把搜索栏放在tableView顶部，不用UISearchController，导航按钮永远在
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 80)];
-    self.searchBar.placeholder = @"搜索...";
+    // 搜索栏 + 范围切换，手动组合
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 88)];
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
+    self.searchBar.placeholder = @"输入关键词搜索...";
     self.searchBar.delegate = self;
-    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
-    // 加范围按钮：全部/类名/方法名
-    self.searchBar.scopeButtonTitles = @[@"全部", @"类名", @"方法名"];
-    self.searchBar.selectedScopeButtonIndex = 0;
-    self.searchBar.showsScopeBar = YES;
+    self.searchBar.searchBarStyle = UISearchBarStyleProminent;
+    [header addSubview:self.searchBar];
+
+    UISegmentedControl *scope = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"类名", @"方法名"]];
+    scope.frame = CGRectMake(8, 48, self.view.bounds.size.width - 16, 32);
+    scope.selectedSegmentIndex = 0;
+    scope.tag = 100;
+    [scope addTarget:self action:@selector(scopeChanged:) forControlEvents:UIControlEventValueChanged];
+    [header addSubview:scope];
+
     // 键盘上加完成按钮
     UIToolbar *tool = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 0, 44)];
     tool.items = @[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
                    [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(dismissKeyboard)]];
     self.searchBar.inputAccessoryView = tool;
-    self.tableView.tableHeaderView = self.searchBar;
+    self.tableView.tableHeaderView = header;
 
     self.filteredResults = self.allResults;
 }
@@ -378,11 +384,16 @@
     [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
 }
 
+- (void)scopeChanged:(UISegmentedControl *)scope {
+    [self searchBar:self.searchBar textDidChange:self.searchBar.text];
+}
+
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     // 防抖0.3秒，后台过滤
     [_searchDebounce invalidate];
     NSString *kw = [searchText lowercaseString];
-    NSInteger scope = searchBar.selectedScopeButtonIndex;
+    UISegmentedControl *scope = [self.tableView.tableHeaderView viewWithTag:100];
+    NSInteger selected = scope ? scope.selectedSegmentIndex : 0;
     NSArray *all = self.allResults;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -391,9 +402,9 @@
                 result = all;
             } else {
                 NSPredicate *pred;
-                if (scope == 1) {
+                if (selected == 1) {
                     pred = [NSPredicate predicateWithFormat:@"className CONTAINS[cd] %@", kw];
-                } else if (scope == 2) {
+                } else if (selected == 2) {
                     pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@", kw];
                 } else {
                     pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
@@ -406,10 +417,6 @@
             });
         });
     }];
-}
-
-- (void)searchBar:(UISearchBar *)searchBar selectedScopeButtonIndexDidChange:(NSInteger)selectedScope {
-    [self searchBar:searchBar textDidChange:searchBar.text];
 }
 
 - (void)dismissKeyboard {
