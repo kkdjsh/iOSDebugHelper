@@ -86,32 +86,38 @@ static NSMutableDictionary *sOriginalIMPs;
     // 根据返回类型构造block
     id block = nil;
     switch (hook.returnType) {
-        case DHHookReturnTrue:
+        case DHHookReturnTrue: {
             block = ^id(id self, SEL _cmd) { return (__bridge id)kCFBooleanTrue; };
             break;
-        case DHHookReturnFalse:
-            block = ^id(id self, SEL _cmd) { return nil; };  // NO = nil for objects
-            break;
-        case DHHookReturnNil:
+        }
+        case DHHookReturnFalse: {
             block = ^id(id self, SEL _cmd) { return nil; };
             break;
-        case DHHookReturnZero:
+        }
+        case DHHookReturnNil: {
             block = ^id(id self, SEL _cmd) { return nil; };
             break;
-        case DHHookReturnCustomString:
+        }
+        case DHHookReturnZero: {
+            block = ^id(id self, SEL _cmd) { return nil; };
+            break;
+        }
+        case DHHookReturnCustomString: {
             block = ^id(id self, SEL _cmd) { return hook.customValue ?: @""; };
             break;
+        }
         case DHHookReturnCustomNumber: {
             NSNumber *num = [hook.customValue isKindOfClass:[NSNumber class]] ? hook.customValue : @([hook.customValue doubleValue]);
             block = ^id(id self, SEL _cmd) { return num; };
             break;
         }
-        default:
+        default: {
             block = ^id(id self, SEL _cmd) {
                 IMP orig = [sOriginalIMPs[key] pointerValue];
                 return ((id(*)(id, SEL))orig)(self, _cmd);
             };
             break;
+        }
     }
 
     IMP newImp = imp_implementationWithBlock(block);
