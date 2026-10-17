@@ -241,7 +241,7 @@
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"e.g. 广告拦截"; }];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-        NSString *name = a.textFields[0].text.trimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet];
+        NSString *name = [a.textFields[0].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         if (!name.length) return;
         NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
         if (![folders containsObject:name]) {
