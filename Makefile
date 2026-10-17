@@ -23,7 +23,7 @@ iOSDebugHelper_FILES = Tweak.x \
     UI/DHButtonManager.m \
     UI/DHMainMenuViewController.m
 
-iOSDebugHelper_CFLAGS = -fobjc-arc -fmodules -Wno-deprecated-declarations -Wno-unused-parameter -Wno-unused-variable -I. -ILogger -INetwork -IHook -ICrypto -IScanner -IAI -IUI
+iOSDebugHelper_CFLAGS = -fobjc-arc -fmodules -Wno-everything -I. -ILogger -INetwork -IHook -ICrypto -IScanner -IAI -IUI
 iOSDebugHelper_CXXFLAGS = -std=c++14
 iOSDebugHelper_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore Security JavaScriptCore AVFoundation UserNotifications WebKit SceneKit ImageIO
 iOSDebugHelper_LIBRARIES = substrate sqlite3 z
