@@ -11,7 +11,7 @@
 
 static void DHInitializeDebugHelper(void) {
     @autoreleasepool {
-        [DHLogManager setLogLevel:DHLogLevelDebug];
+        [DHLogManager sharedManager].logLevel = DHLogLevelDebug;
         DHLogInfo(@"iOSDebugHelper v1.0.0 启动中...");
 
         // 1. 加载并应用持久化的 Hook 配置
