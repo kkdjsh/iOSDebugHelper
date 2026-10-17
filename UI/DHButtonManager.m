@@ -1,7 +1,7 @@
 //
 //  DHButtonManager.m
 //  iOSDebugHelper
-//  悬浮球使用独立UIWindow，windowLevel最高，不会被App隐藏
+//  透传Window：只有按钮可点，其他触摸穿透给App
 //
 
 #import "DHButtonManager.h"
@@ -12,6 +12,17 @@ static NSString *const kDHButtonSizeKey   = @"DHButtonSize";
 static NSString *const kDHButtonAlphaKey  = @"DHButtonAlpha";
 static NSString *const kDHButtonPosXKey   = @"DHButtonPosX";
 static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
+
+@interface DHPassthroughWindow : UIWindow
+@end
+@implementation DHPassthroughWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *v = [super hitTest:point withEvent:event];
+    // 只有命中按钮才返回，其他返回nil让事件穿透
+    if (v == self.rootViewController.view || !v) return nil;
+    return v;
+}
+@end
 
 @implementation DHButtonManager
 
@@ -34,13 +45,14 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 }
 
 - (void)showFloatingButton {
-    // 使用独立window，windowLevel最高，不会被App的window盖住
-    UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    // 透传Window，windowLevel最高但不拦截触摸
+    DHPassthroughWindow *window = [[DHPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     window.windowLevel = UIWindowLevelAlert + 100;
     window.backgroundColor = [UIColor clearColor];
     window.hidden = NO;
     window.rootViewController = [UIViewController new];
     window.rootViewController.view.backgroundColor = [UIColor clearColor];
+    window.userInteractionEnabled = YES;
 
     self.floatingWindow = window;
 
@@ -49,7 +61,6 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:self.buttonAlpha];
     self.floatingButton.layer.cornerRadius = self.buttonSize / 2;
     self.floatingButton.alpha = self.buttonAlpha;
-    self.floatingButton.layer.zPosition = 1000;
     [self.floatingButton setTitle:@"🔧" forState:UIControlStateNormal];
     self.floatingButton.titleLabel.font = [UIFont systemFontOfSize:self.buttonSize * 0.4];
 
@@ -61,7 +72,7 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
     [self.floatingButton addTarget:self action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
 
     [window.rootViewController.view addSubview:self.floatingButton];
-    DHLogInfo(@"悬浮球已显示(独立Window)");
+    DHLogInfo(@"悬浮球已显示(透传Window)");
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -78,13 +89,7 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 
 - (void)buttonTapped {
     DHLogInfo(@"打开主菜单");
-    UIViewController *topVC = nil;
-    for (UIWindow *w in [UIApplication sharedApplication].windows) {
-        if (!w.isKeyWindow && w != self.floatingWindow) continue;
-        topVC = w.rootViewController;
-        break;
-    }
-    if (!topVC) topVC = [UIApplication sharedApplication].delegate.window.rootViewController;
+    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     while (topVC.presentedViewController) topVC = topVC.presentedViewController;
 
     DHMainMenuViewController *menu = [[DHMainMenuViewController alloc] init];
