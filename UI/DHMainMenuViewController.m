@@ -9,7 +9,6 @@
 #import "DHAdScanner.h"
 #import "DHAIManager.h"
 #import "DHHookManager.h"
-#import <FLEX.h>
 
 @interface DHMainMenuViewController ()
 @property (nonatomic, copy) NSArray *menuSections;
@@ -78,9 +77,9 @@
     NSString *action = item[@"action"];
 
     if ([action isEqualToString:@"openScanner"]) {
-        [[FLEXManager sharedManager] showExplorer];
+        [self showAlert:@"智能扫描助手" message:@"FLEX集成中，即将开放"];
     } else if ([action isEqualToString:@"openDataMonitor"]) {
-        [[FLEXManager sharedManager] showExplorer];
+        [self showAlert:@"数据分析" message:@"FLEX集成中，即将开放"];
     } else if ([action isEqualToString:@"openPatches"]) {
         DHLogInfo(@"打开补丁管理");
     } else if ([action isEqualToString:@"openNetworkRules"]) {

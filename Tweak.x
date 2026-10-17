@@ -7,7 +7,6 @@
 #import "DHHookManager.h"
 #import "DHCryptManager.h"
 #import "DHButtonManager.h"
-#import <FLEX.h>
 
 static void DHInitializeDebugHelper(void) {
     @autoreleasepool {
@@ -25,12 +24,6 @@ static void DHInitializeDebugHelper(void) {
 
         // 4. 显示悬浮球入口
         [[DHButtonManager sharedManager] showFloatingButton];
-
-        // 5. 启动 FLEX 调试框架
-        [[FLEXManager sharedManager] registerGlobalEntryWithName:@"智能扫描助手"
-                                          viewControllerFutureBlock:^UIViewController *{
-                                              return nil; // 由 DHButtonManager 管理
-                                          }];
 
         DHLogInfo(@"iOSDebugHelper 初始化完成");
     }

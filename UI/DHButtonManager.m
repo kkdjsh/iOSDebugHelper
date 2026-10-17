@@ -6,7 +6,6 @@
 #import "DHButtonManager.h"
 #import "DHMainMenuViewController.h"
 #import "DHLogManager.h"
-#import <FLEX.h>
 
 static NSString *const kDHButtonSizeKey   = @"DHButtonSize";
 static NSString *const kDHButtonAlphaKey  = @"DHButtonAlpha";
