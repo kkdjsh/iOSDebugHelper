@@ -5,6 +5,7 @@
 
 #import "DHAdScanner.h"
 #import "DHLogManager.h"
+#import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
 @implementation DHAdScanner
