@@ -25,6 +25,14 @@ static void DHInitializeDebugHelper(void) {
         // 4. 显示悬浮球入口
         [[DHButtonManager sharedManager] showFloatingButton];
 
+        // 5. App进入后台时清除扫描缓存，下次前台重新扫描
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification
+                                                          object:nil queue:nil
+                                                      usingBlock:^(NSNotification *note) {
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHCachedScanResults"];
+            DHLogDebug(@"App进入后台，已清除扫描缓存");
+        }];
+
         DHLogInfo(@"iOSDebugHelper 初始化完成");
     }
 }

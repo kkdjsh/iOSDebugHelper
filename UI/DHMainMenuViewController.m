@@ -163,43 +163,174 @@
 }
 @end
 
-#pragma mark - 扫描结果控制器
-@interface DHScanResultVC : UITableViewController
-@property (nonatomic, copy) NSArray *results;
+#pragma mark - 扫描结果控制器（带搜索、分组、Hook、区间复制、缓存）
+@interface DHScanResultVC : UITableViewController <UISearchResultsUpdating>
+@property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
+@property (nonatomic, copy) NSArray *filteredResults;      // 当前显示的扁平结果
+@property (nonatomic, strong) UISearchController *searchCtrl;
 @end
 @implementation DHScanResultVC
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"扫描结果";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)];
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重新扫描" style:UIBarButtonItemStylePlain target:self action:@selector(rescan)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
+
+    // 搜索框
+    self.searchCtrl = [[UISearchController alloc] initWithSearchResultsController:nil];
+    self.searchCtrl.searchResultsUpdater = self;
+    self.searchCtrl.obscuresBackgroundDuringPresentation = NO;
+    self.searchCtrl.searchBar.placeholder = @"搜索类名或方法名...";
+    self.navigationItem.searchController = self.searchCtrl;
+
+    self.filteredResults = self.allResults;
 }
-- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.results.count; }
+
+- (void)rescan {
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHCachedScanResults"];
+    [[DHAdScanner sharedScanner] scanAllClassesWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.allResults = results;
+            self.filteredResults = results;
+            [self cacheResults:results];
+            [self.tableView reloadData];
+        });
+    }];
+}
+
+- (void)cacheResults:(NSArray *)results {
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:results];
+    [[NSUserDefaults standardUserDefaults] setObject:data forKey:@"DHCachedScanResults"];
+}
+
++ (NSArray *)loadCachedResults {
+    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:@"DHCachedScanResults"];
+    if (data) {
+        id obj = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+        if ([obj isKindOfClass:[NSArray class]]) return obj;
+    }
+    return nil;
+}
+
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.filteredResults.count; }
+
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
-    DHScannerResult *r = self.results[ip.row];
-    c.textLabel.text = [NSString stringWithFormat:@"%@ In Class: %@", r.methodName, r.className];
+    DHScannerResult *r = self.filteredResults[ip.row];
+    NSString *prefix = r.matchedKeyword ? [NSString stringWithFormat:@"[%@] ", r.matchedKeyword] : @"";
+    c.textLabel.text = [NSString stringWithFormat:@"%@-%@\nIn Class: %@", prefix, r.methodName, r.className];
     c.textLabel.font = [UIFont systemFontOfSize:11];
+    c.textLabel.numberOfLines = 2;
+    c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return c;
 }
-- (void)batchCopy {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"批量复制N条" message:@"输入要复制的条数" preferredStyle:UIAlertControllerStyleAlert];
-    [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = [NSString stringWithFormat:@"共%lu条", (unsigned long)self.results.count]; f.keyboardType = UIKeyboardTypeNumberPad; }];
+
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:YES];
+    DHScannerResult *r = self.filteredResults[ip.row];
+    [self showHookActionSheetForResult:r];
+}
+
+- (void)showHookActionSheetForResult:(DHScannerResult *)r {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"%@\nIn Class: %@", r.methodName, r.className]
+                                                               message:@"选择 Hook 返回值类型"
+                                                        preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnTrue custom:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnFalse custom:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 nil" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnNil custom:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 0" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnZero custom:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回自定义数字..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self promptCustomValue:r isNumber:YES];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回自定义字符串..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self promptCustomValue:r isNumber:NO];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)promptCustomValue:(DHScannerResult *)r isNumber:(BOOL)isNum {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"输入自定义值" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = isNum ? @"数字 e.g. 1" : @"字符串 e.g. vip"; }];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [a addAction:[UIAlertAction actionWithTitle:@"复制" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-        NSInteger n = [a.textFields[0].text integerValue];
-        if (n <= 0) { [self showToast:@"请输入合法数字"]; return; }
-        if (n > self.results.count) n = self.results.count;
-        NSMutableArray *lines = [NSMutableArray new];
-        for (NSInteger i = 0; i < n; i++) {
-            DHScannerResult *r = self.results[i];
-            [lines addObject:[NSString stringWithFormat:@"%@ In Class: %@", r.methodName, r.className]];
-        }
-        [UIPasteboard generalPasteboard].string = [lines componentsJoinedByString:@"\n"];
-        [self showToast:[NSString stringWithFormat:@"已复制%lu条", (unsigned long)n]];
+    [a addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        NSString *val = a.textFields[0].text;
+        if (!val.length) return;
+        [self addHook:r returnType:isNum ? DHHookReturnCustomNumber : DHHookReturnCustomString custom:val];
     }]];
     [self presentViewController:a animated:YES completion:nil];
 }
+
+- (void)addHook:(DHScannerResult *)r returnType:(DHHookReturnType)type custom:(NSString *)custom {
+    DHHookInfo *h = [DHHookInfo new];
+    h.className = r.className;
+    h.selectorName = r.methodName;
+    h.isClassMethod = [r.methodName hasPrefix:@"(class)"];
+    if (h.isClassMethod) h.selectorName = [r.methodName stringByReplacingOccurrencesOfString:@"(class) " withString:@""];
+    h.returnType = type;
+    h.customValue = custom;
+    h.reason = [NSString stringWithFormat:@"扫描Hook: %@", r.matchedKeyword ?: @""];
+    [[DHHookManager sharedManager] addHook:h];
+    [self showToast:[NSString stringWithFormat:@"已添加Hook: %@", r.methodName]];
+}
+
+- (void)batchCopy {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"批量复制"
+                                                            message:@"输入区间，如 1-50 或 30-50\n单数字5 = 复制前5条"
+                                                     preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = [NSString stringWithFormat:@"共%lu条", (unsigned long)self.filteredResults.count]; }];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"复制" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        [self doBatchCopy:a.textFields[0].text];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)doBatchCopy:(NSString *)input {
+    NSInteger total = self.filteredResults.count;
+    if (total == 0) { [self showToast:@"无结果"]; return; }
+    NSInteger start = 0, end = 0;
+    if ([input containsString:@"-"]) {
+        NSArray *parts = [input componentsSeparatedByString:@"-"];
+        start = [parts[0] integerValue] - 1;
+        end = [parts[1] integerValue];
+    } else {
+        start = 0;
+        end = [input integerValue];
+    }
+    if (start < 0) start = 0;
+    if (end > total) end = total;
+    if (start >= end) { [self showToast:@"区间无效"]; return; }
+    NSMutableArray *lines = [NSMutableArray new];
+    for (NSInteger i = start; i < end; i++) {
+        DHScannerResult *r = self.filteredResults[i];
+        [lines addObject:[NSString stringWithFormat:@"-%@ In Class: %@", r.methodName, r.className]];
+    }
+    [UIPasteboard generalPasteboard].string = [lines componentsJoinedByString:@"\n"];
+    [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
+}
+
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+    NSString *kw = searchController.searchBar.text.lowercaseString;
+    if (!kw.length) {
+        self.filteredResults = self.allResults;
+    } else {
+        NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+        self.filteredResults = [self.allResults filteredArrayUsingPredicate:pred];
+    }
+    [self.tableView reloadData];
+}
+
 - (void)showToast:(NSString *)msg {
     UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:t animated:YES completion:^{
@@ -301,11 +432,21 @@
 }
 
 - (void)runGlobalScan {
+    // 先查缓存
+    NSArray *cached = [DHScanResultVC loadCachedResults];
+    if (cached.count > 0) {
+        DHScanResultVC *vc = [DHScanResultVC new];
+        vc.allResults = cached;
+        [self.navigationController pushViewController:vc animated:YES];
+        return;
+    }
+    // 无缓存，重新扫描
     [self showToast:@"开始扫描..."];
     [[DHAdScanner sharedScanner] scanAllClassesWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
         dispatch_async(dispatch_get_main_queue(), ^{
             DHScanResultVC *vc = [DHScanResultVC new];
-            vc.results = results;
+            vc.allResults = results;
+            [vc cacheResults:results];
             [self.navigationController pushViewController:vc animated:YES];
         });
     }];
