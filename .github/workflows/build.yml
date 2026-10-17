@@ -38,13 +38,15 @@ jobs:
           echo "FLEX sources: $(echo $FLEX_SOURCES | wc -w) files"
 
           # 动态追加到 Makefile
+          FLEX_INCLUDES=$(find Headers/FLEX/Classes -type d | sed 's/^/-I/' | tr '\n' ' ')
           echo "iOSDebugHelper_FILES += $FLEX_SOURCES" >> Makefile
-          echo "iOSDebugHelper_CFLAGS += -IHeaders/FLEX" >> Makefile
+          echo "iOSDebugHelper_CFLAGS += $FLEX_INCLUDES -IHeaders/FLEX" >> Makefile
 
           echo "=== Makefile content ==="
           cat Makefile
 
-          make package THEOS=/opt/theos ARCHS="arm64" 2>&1 | tail -60
+          set -o pipefail
+          make package THEOS=/opt/theos ARCHS="arm64" 2>&1 | tail -80
 
       - name: Extract dylib from deb
         if: success()
