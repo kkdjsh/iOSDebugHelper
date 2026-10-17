@@ -54,12 +54,29 @@
     [self.navigationController pushViewController:vc animated:YES];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)t trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)ip {
+    UIContextualAction *rename = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"重命名" handler:^(UIContextualAction *a, UIView *v, void(^d)(BOOL)) {
+        d(YES);
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.text = self.folders[ip.row][@"name"]; }];
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+            NSString *name = alert.textFields[0].text;
+            if (!name.length) return;
+            NSMutableArray *f = [self folders];
+            NSMutableDictionary *item = [f[ip.row] mutableCopy];
+            item[@"name"] = name;
+            f[ip.row] = item;
+            [self save:f]; [self.tableView reloadData];
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }];
+    rename.backgroundColor = [UIColor systemBlueColor];
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction *a, UIView *v, void(^d)(BOOL)) {
         NSMutableArray *f = [self folders];
         [f removeObjectAtIndex:ip.row];
         [self save:f]; d(YES);
     }];
-    return [UISwipeActionsConfiguration configurationWithActions:@[del]];
+    return [UISwipeActionsConfiguration configurationWithActions:@[del, rename]];
 }
 - (void)toast:(NSString *)m {
     UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:m preferredStyle:UIAlertControllerStyleAlert];
