@@ -218,6 +218,7 @@
 @end
 @implementation DHScanResultVC {
     NSTimer *_searchDebounce;
+    NSInteger _searchScope; // 0=全部 1=类名 2=方法名
 }
 
 - (void)viewDidLoad {
@@ -227,20 +228,23 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重新扫描" style:UIBarButtonItemStylePlain target:self action:@selector(rescan)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
-    // 搜索栏 + 范围切换，手动组合
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 88)];
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
-    self.searchBar.placeholder = @"输入关键词搜索...";
+    // 一行布局：左边搜索框，右边筛选按钮
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 56)];
+    header.backgroundColor = [UIColor systemBackgroundColor];
+
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 8, self.view.bounds.size.width - 80, 40)];
+    self.searchBar.placeholder = @"搜索...";
     self.searchBar.delegate = self;
     self.searchBar.searchBarStyle = UISearchBarStyleProminent;
     [header addSubview:self.searchBar];
 
-    UISegmentedControl *scope = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"类名", @"方法名"]];
-    scope.frame = CGRectMake(8, 48, self.view.bounds.size.width - 16, 32);
-    scope.selectedSegmentIndex = 0;
-    scope.tag = 100;
-    [scope addTarget:self action:@selector(scopeChanged:) forControlEvents:UIControlEventValueChanged];
-    [header addSubview:scope];
+    UIButton *filterBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    filterBtn.frame = CGRectMake(self.view.bounds.size.width - 76, 12, 72, 32);
+    filterBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+    [filterBtn setTitle:@"全部 ▾" forState:UIControlStateNormal];
+    filterBtn.tag = 200;
+    [filterBtn addTarget:self action:@selector(filterBtnTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:filterBtn];
 
     // 键盘上加完成按钮
     UIToolbar *tool = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 0, 44)];
@@ -384,16 +388,25 @@
     [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
 }
 
-- (void)scopeChanged:(UISegmentedControl *)scope {
-    [self searchBar:self.searchBar textDidChange:self.searchBar.text];
+- (void)filterBtnTapped:(UIButton *)btn {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"筛选范围" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray *titles = @[@"全部（类名+方法名）", @"仅类名", @"仅方法名"];
+    for (NSInteger i = 0; i < 3; i++) {
+        [sheet addAction:[UIAlertAction actionWithTitle:titles[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            self->_searchScope = i;
+            [btn setTitle:@[@"全部 ▾", @"类名 ▾", @"方法名 ▾"][i] forState:UIControlStateNormal];
+            [self searchBar:self.searchBar textDidChange:self.searchBar.text];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     // 防抖0.3秒，后台过滤
     [_searchDebounce invalidate];
     NSString *kw = [searchText lowercaseString];
-    UISegmentedControl *scope = [self.tableView.tableHeaderView viewWithTag:100];
-    NSInteger selected = scope ? scope.selectedSegmentIndex : 0;
+    NSInteger scope = _searchScope;
     NSArray *all = self.allResults;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -402,9 +415,9 @@
                 result = all;
             } else {
                 NSPredicate *pred;
-                if (selected == 1) {
+                if (scope == 1) {
                     pred = [NSPredicate predicateWithFormat:@"className CONTAINS[cd] %@", kw];
-                } else if (selected == 2) {
+                } else if (scope == 2) {
                     pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@", kw];
                 } else {
                     pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
