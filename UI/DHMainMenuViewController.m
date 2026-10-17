@@ -776,21 +776,29 @@
 }
 
 - (void)filterBtnTapped:(UIButton *)btn {
-    __weak typeof(self) weakSelf = self;
-    UIMenu *menu = [UIMenu menuWithChildren:@[
-        [UIMenu menuWithTitle:@"搜索范围" children:@[
-            [UIAction actionWithTitle:@"全部" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 0; [weakSelf applyFilter]; }],
-            [UIAction actionWithTitle:@"仅类名" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 1; [weakSelf applyFilter]; }],
-            [UIAction actionWithTitle:@"仅方法名" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 2; [weakSelf applyFilter]; }],
-        ]],
-        [UIMenu menuWithTitle:@"高级过滤" children:@[
-            [UIAction actionWithTitle:@"过滤系统类" image:[UIImage systemImageNamed:weakSelf->_filterSystemClasses ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterSystemClasses = !weakSelf->_filterSystemClasses; [weakSelf applyFilter]; }],
-            [UIAction actionWithTitle:@"仅看BOOL方法" image:[UIImage systemImageNamed:weakSelf->_filterBOOLOnly ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterBOOLOnly = !weakSelf->_filterBOOLOnly; [weakSelf applyFilter]; }],
-            [UIAction actionWithTitle:@"仅看带参方法" image:[UIImage systemImageNamed:weakSelf->_filterHasArgs ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterHasArgs = !weakSelf->_filterHasArgs; [weakSelf applyFilter]; }],
-        ]],
-    ]];
-    [btn setMenu:menu];
-    [btn setShowsMenuAsPrimaryAction:YES];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"筛选" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray *titles = @[
+        _searchScope == 0 ? @"✓ 全部" : @"  全部",
+        _searchScope == 1 ? @"✓ 仅类名" : @"  仅类名",
+        _searchScope == 2 ? @"✓ 仅方法名" : @"  仅方法名",
+        @"",
+        _filterSystemClasses ? @"✓ 过滤系统类" : @"  过滤系统类",
+        _filterBOOLOnly ? @"✓ 仅看BOOL方法" : @"  仅看BOOL方法",
+        _filterHasArgs ? @"✓ 仅看带参方法" : @"  仅看带参方法",
+    ];
+    for (NSInteger i = 0; i < titles.count; i++) {
+        if (i == 3) { [sheet addAction:[UIAlertAction actionWithTitle:@"———" style:UIAlertActionStyleDestructive handler:nil]]; continue; }
+        [sheet addAction:[UIAlertAction actionWithTitle:titles[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            if (i < 3) self->_searchScope = i;
+            else if (i == 4) self->_filterSystemClasses = !self->_filterSystemClasses;
+            else if (i == 5) self->_filterBOOLOnly = !self->_filterBOOLOnly;
+            else if (i == 6) self->_filterHasArgs = !self->_filterHasArgs;
+            [self filterBtnTapped:btn]; // 刷新菜单
+            [self applyFilter];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)applyFilter {
