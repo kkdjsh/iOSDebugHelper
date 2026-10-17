@@ -570,11 +570,17 @@
 @implementation DHScanResultVC {
     NSTimer *_searchDebounce;
     NSInteger _searchScope; // 0=全部 1=类名 2=方法名
+    BOOL _filterSystemClasses; // 默认YES
+    BOOL _filterBOOLOnly;
+    BOOL _filterHasArgs;
+    BOOL _filterClassMethods;
+    BOOL _filterInstanceMethods;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"扫描结果";
+    _filterSystemClasses = YES;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
@@ -591,8 +597,8 @@
 
     UIButton *filterBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     filterBtn.frame = CGRectMake(w - 80, 10, 76, 32);
+    [filterBtn setImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease.circle"] forState:UIControlStateNormal];
     filterBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    [filterBtn setTitle:@"全部 ▾" forState:UIControlStateNormal];
     filterBtn.tag = 200;
     [filterBtn addTarget:self action:@selector(filterBtnTapped:) forControlEvents:UIControlEventTouchUpInside];
     [header addSubview:filterBtn];
@@ -770,40 +776,65 @@
 }
 
 - (void)filterBtnTapped:(UIButton *)btn {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"筛选范围" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    NSArray *titles = @[@"全部（类名+方法名）", @"仅类名", @"仅方法名"];
-    for (NSInteger i = 0; i < 3; i++) {
-        [sheet addAction:[UIAlertAction actionWithTitle:titles[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            self->_searchScope = i;
-            [btn setTitle:@[@"全部 ▾", @"类名 ▾", @"方法名 ▾"][i] forState:UIControlStateNormal];
-            [self searchBar:self.searchBar textDidChange:self.searchBar.text];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
+    __weak typeof(self) weakSelf = self;
+    UIMenu *menu = [UIMenu menuWithChildren:@[
+        [UIMenu menuWithTitle:@"搜索范围" children:@[
+            [UIAction actionWithTitle:@"全部" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 0; [weakSelf applyFilter]; }],
+            [UIAction actionWithTitle:@"仅类名" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 1; [weakSelf applyFilter]; }],
+            [UIAction actionWithTitle:@"仅方法名" image:nil identifier:nil handler:^(UIAction *a) { weakSelf->_searchScope = 2; [weakSelf applyFilter]; }],
+        ]],
+        [UIMenu menuWithTitle:@"高级过滤" children:@[
+            [UIAction actionWithTitle:@"过滤系统类" image:[UIImage systemImageNamed:weakSelf->_filterSystemClasses ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterSystemClasses = !weakSelf->_filterSystemClasses; [weakSelf applyFilter]; }],
+            [UIAction actionWithTitle:@"仅看BOOL方法" image:[UIImage systemImageNamed:weakSelf->_filterBOOLOnly ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterBOOLOnly = !weakSelf->_filterBOOLOnly; [weakSelf applyFilter]; }],
+            [UIAction actionWithTitle:@"仅看带参方法" image:[UIImage systemImageNamed:weakSelf->_filterHasArgs ? @"checkmark" : @""] identifier:nil handler:^(UIAction *a) { weakSelf->_filterHasArgs = !weakSelf->_filterHasArgs; [weakSelf applyFilter]; }],
+        ]],
+    ]];
+    [btn setMenu:menu];
+    [btn setShowsMenuAsPrimaryAction:YES];
+}
+
+- (void)applyFilter {
+    [self searchBar:self.searchBar textDidChange:self.searchBar.text];
 }
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-    // 防抖0.3秒，后台过滤
     [_searchDebounce invalidate];
     NSString *kw = [searchText lowercaseString];
     NSInteger scope = _searchScope;
+    BOOL fSys = _filterSystemClasses;
+    BOOL fBool = _filterBOOLOnly;
+    BOOL fArgs = _filterHasArgs;
     NSArray *all = self.allResults;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSArray *result;
-            if (!kw.length) {
-                result = all;
-            } else {
-                NSPredicate *pred;
-                if (scope == 1) {
-                    pred = [NSPredicate predicateWithFormat:@"className CONTAINS[cd] %@", kw];
-                } else if (scope == 2) {
-                    pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@", kw];
-                } else {
-                    pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+            NSMutableArray *result = [NSMutableArray new];
+            for (DHScannerResult *r in all) {
+                // 关键词过滤
+                if (kw.length) {
+                    if (scope == 1) {
+                        if (![r.className.lowercaseString containsString:kw]) continue;
+                    } else if (scope == 2) {
+                        if (![r.methodName.lowercaseString containsString:kw]) continue;
+                    } else {
+                        if (![r.className.lowercaseString containsString:kw] && ![r.methodName.lowercaseString containsString:kw]) continue;
+                    }
                 }
-                result = [all filteredArrayUsingPredicate:pred];
+                // 过滤系统类
+                if (fSys) {
+                    NSString *cn = r.className;
+                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
+                }
+                // 仅看BOOL方法（方法名以is/has/should开头）
+                if (fBool) {
+                    NSString *mn = r.methodName.lowercaseString;
+                    if (![mn hasPrefix:@"is"] && ![mn hasPrefix:@"has"] && ![mn hasPrefix:@"should"]) continue;
+                }
+                // 仅看带参方法
+                if (fArgs) {
+                    if (![r.methodName containsString:@":"]) continue;
+                }
+                [result addObject:r];
             }
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.filteredResults = result;
