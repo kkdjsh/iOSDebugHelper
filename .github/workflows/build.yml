@@ -33,8 +33,8 @@ jobs:
         run: |
           export THEOS=/opt/theos
 
-          # 收集 FLEX 所有 .m 源文件
-          FLEX_SOURCES=$(find Headers/FLEX -name "*.m" ! -name "*Test*" ! -name "main.m" | tr '\n' ' ')
+          # 收集 FLEX Classes 目录下所有 .m 源文件（排除测试、示例、带空格路径）
+          FLEX_SOURCES=$(find Headers/FLEX/Classes -name "*.m" ! -name "*Test*" | grep -v " " | tr '\n' ' ')
           echo "FLEX sources: $(echo $FLEX_SOURCES | wc -w) files"
 
           # 动态追加到 Makefile
