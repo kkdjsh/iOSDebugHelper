@@ -234,6 +234,8 @@
     self.searchCtrl.searchBar.placeholder = @"搜索类名或方法名...";
     self.navigationItem.searchController = self.searchCtrl;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
+    // 不显示默认取消按钮，用搜索框内的X清除，复制按钮始终保留
+    self.searchCtrl.automaticallyShowsCancelButton = NO;
 
     self.filteredResults = self.allResults;
 }
@@ -371,17 +373,24 @@
 }
 
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
-    // 防抖：停止输入200ms后才过滤，避免每个字母都全量过滤导致卡顿
+    // 防抖0.3秒，后台过滤避免卡顿
     [_searchDebounce invalidate];
-    NSString *kw = searchController.searchBar.text.lowercaseString;
-    _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.2 repeats:NO block:^(NSTimer *t) {
-        if (!kw.length) {
-            self.filteredResults = self.allResults;
-        } else {
-            NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
-            self.filteredResults = [self.allResults filteredArrayUsingPredicate:pred];
-        }
-        [self.tableView reloadData];
+    NSString *kw = [searchController.searchBar.text lowercaseString];
+    NSArray *all = self.allResults;
+    _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSArray *result;
+            if (!kw.length) {
+                result = all;
+            } else {
+                NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+                result = [all filteredArrayUsingPredicate:pred];
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.filteredResults = result;
+                [self.tableView reloadData];
+            });
+        });
     }];
 }
 
