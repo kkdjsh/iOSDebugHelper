@@ -202,16 +202,37 @@
 
     // 补丁左滑
     DHHookInfo *h = [self visibleHooks][ip.row];
+    UITableViewRowAction *move = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"移动" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+        [self moveHook:h];
+    }];
     UITableViewRowAction *edit = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"编辑" handler:^(UITableViewRowAction *a, NSIndexPath *idx) { [self editHook:h]; }];
     UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
         [[DHHookManager sharedManager] removeHook:h];
         [self.tableView reloadData];
     }];
-    return @[del, edit];
+    return @[del, edit, move];
 }
 
-- (void)editHook:(DHHookInfo *)h {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
+- (void)moveHook:(DHHookInfo *)h {
+    NSArray *folders = [self folderNames];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"移动到..." message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        h.folderName = nil;
+        [[DHHookManager sharedManager] saveHooks];
+        [self.tableView reloadData];
+    }]];
+    for (NSString *fname in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            h.folderName = fname;
+            [[DHHookManager sharedManager] saveHooks];
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)editHook:(DHHookInfo *)h {    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"返回0",@"自定义字符串",@"自定义数字"]) {
         [a addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
             if ([title isEqualToString:@"返回TRUE"]) h.returnType = DHHookReturnTrue;
