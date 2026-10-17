@@ -437,7 +437,8 @@
         else { h.returnType = DHHookReturnCustomNumber; h.customValue = retVal; }
         h.enabled = NO;
         [[DHHookManager sharedManager] addHook:h];
-        [[DHHookManager sharedManager] disableHook:h];
+        // addHook会自动enable，需要立即关掉
+        [[DHHookManager sharedManager] toggleHook:h];
         count++;
     }
     [self.tableView reloadData];
