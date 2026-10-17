@@ -5,6 +5,17 @@
 
 #import "DHKeywordVC.h"
 
+@interface DHKeywordFileVC : UITableViewController
+@property (nonatomic, strong) NSMutableArray *folders;
+@property (nonatomic, assign) NSInteger idx;
+@end
+
+@interface DHKeywordEditVC : UIViewController
+@property (nonatomic, strong) NSMutableArray *folders;
+@property (nonatomic, assign) NSInteger folderIdx;
+@property (nonatomic, assign) NSInteger fileIdx;
+@end
+
 #pragma mark - 文件夹列表
 @implementation DHKeywordFolderVC
 - (void)viewDidLoad {
@@ -61,10 +72,6 @@
 @end
 
 #pragma mark - 文件列表
-@interface DHKeywordFileVC : UITableViewController
-@property (nonatomic, strong) NSMutableArray *folders;
-@property (nonatomic, assign) NSInteger idx;
-@end
 @implementation DHKeywordFileVC
 - (NSArray *)files { return self.folders[self.idx][@"files"]; }
 - (void)viewDidLoad {
@@ -118,12 +125,6 @@
 @end
 
 #pragma mark - 编辑
-@interface DHKeywordEditVC : UIViewController
-@property (nonatomic, strong) NSMutableArray *folders;
-@property (nonatomic, assign) NSInteger folderIdx;
-@property (nonatomic, assign) NSInteger fileIdx;
-@property (nonatomic, strong) UITextView *tv;
-@end
 @implementation DHKeywordEditVC
 - (void)viewDidLoad {
     [super viewDidLoad];
