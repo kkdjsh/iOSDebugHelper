@@ -193,6 +193,10 @@
                     if ([h.folderName isEqualToString:fname]) [toRemove addObject:h];
                 }
                 for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
+                // 从文件夹列表中也删除
+                NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+                [folders removeObject:fname];
+                [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
                 [self.tableView reloadData];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
@@ -477,8 +481,8 @@
 }
 
 - (void)addHook:(DHScannerResult *)r returnType:(DHHookReturnType)type custom:(NSString *)custom {
-    // 先列出所有文件夹
-    NSMutableSet *folderSet = [NSMutableSet new];
+    // 从NSUserDefaults读取所有文件夹
+    NSMutableSet *folderSet = [NSMutableSet setWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
     for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
         if (h.folderName.length) [folderSet addObject:h.folderName];
     }
