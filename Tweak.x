@@ -32,14 +32,6 @@ static void DHInitializeDebugHelper(void) {
             DHLogInfo(@"自动扫描完成: %lu 条结果已缓存", (unsigned long)results.count);
         }];
 
-        // 6. App进入后台时清除扫描缓存，下次前台重新扫描
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification
-                                                          object:nil queue:nil
-                                                      usingBlock:^(NSNotification *note) {
-            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHScanCache"];
-            DHLogDebug(@"App进入后台，已清除扫描缓存");
-        }];
-
         DHLogInfo(@"iOSDebugHelper 初始化完成");
     }
 }

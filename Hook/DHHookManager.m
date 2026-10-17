@@ -1,14 +1,13 @@
 //
 //  DHHookManager.m
 //  iOSDebugHelper
-//  真正实现 method swizzling，替换方法返回值
+//  真正实现 method swizzling，根据方法返回类型正确替换返回值
 //
 
 #import "DHHookManager.h"
 #import "DHLogManager.h"
 #import <objc/runtime.h>
 
-// 保存原始IMP，用于取消Hook时恢复
 static NSMutableDictionary *sOriginalIMPs;
 
 @implementation DHHookManager
@@ -36,13 +35,9 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)loadHooks {
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedHooksKey];
-    if (data) {
-        self.savedHooks = [NSKeyedUnarchiver unarchiveObjectWithData:data] ?: @[];
-    }
+    if (data) self.savedHooks = [NSKeyedUnarchiver unarchiveObjectWithData:data] ?: @[];
     NSData *pdata = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedPatchesKey];
-    if (pdata) {
-        self.savedPatches = [NSKeyedUnarchiver unarchiveObjectWithData:pdata] ?: @[];
-    }
+    if (pdata) self.savedPatches = [NSKeyedUnarchiver unarchiveObjectWithData:pdata] ?: @[];
 }
 
 - (void)saveHooks {
@@ -59,86 +54,74 @@ static NSMutableDictionary *sOriginalIMPs;
     for (DHHookInfo *hook in self.savedHooks) {
         if (hook.enabled) [self applyHook:hook];
     }
-    DHLogInfo(@"HookManager: 完成应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
 }
 
 - (void)applyHook:(DHHookInfo *)hook {
     Class cls = NSClassFromString(hook.className);
-    if (!cls) {
-        DHLogWarn(@"Hook失败: 类 %@ 不存在", hook.className);
-        return;
-    }
+    if (!cls) { DHLogWarn(@"Hook失败: 类 %@ 不存在", hook.className); return; }
     if (hook.isClassMethod) cls = object_getClass(cls);
 
     SEL sel = NSSelectorFromString(hook.selectorName);
     Method m = class_getInstanceMethod(cls, sel);
-    if (!m) {
-        DHLogWarn(@"Hook失败: 方法 %@ %@ 不存在", hook.className, hook.selectorName);
-        return;
-    }
+    if (!m) { DHLogWarn(@"Hook失败: 方法 %@ %@ 不存在", hook.className, hook.selectorName); return; }
 
     NSString *key = [NSString stringWithFormat:@"%@-%@", hook.className, hook.selectorName];
     IMP originalImp = method_getImplementation(m);
-    if (!sOriginalIMPs[key]) {
-        sOriginalIMPs[key] = [NSValue valueWithPointer:originalImp];
+    if (!sOriginalIMPs[key]) sOriginalIMPs[key] = [NSValue valueWithPointer:originalImp];
+
+    // 获取方法返回类型编码
+    const char *retType = method_copyReturnType(m);
+    NSString *typeStr = [NSString stringWithUTF8String:retType];
+    free((void *)retType);
+
+    IMP newImp = NULL;
+
+    if ([typeStr isEqualToString:@"v"]) {
+        // void 返回 - 直接什么都不做（跳过原方法）
+        newImp = imp_implementationWithBlock(^void(id self, SEL _cmd) {});
+    } else if ([typeStr isEqualToString:@"B"] || [typeStr isEqualToString:@"c"] || [typeStr isEqualToString:@"C"]) {
+        // BOOL / char / unsigned char
+        BOOL ret = (hook.returnType == DHHookReturnTrue);
+        if (hook.returnType == DHHookReturnCustomNumber) ret = [hook.customValue boolValue];
+        newImp = imp_implementationWithBlock(^BOOL(id self, SEL _cmd) { return ret; });
+    } else if ([typeStr isEqualToString:@"i"] || [typeStr isEqualToString:@"s"] || [typeStr isEqualToString:@"l"] || [typeStr isEqualToString:@"q"]) {
+        // int / short / long / long long
+        long long ret = 0;
+        if (hook.returnType == DHHookReturnTrue) ret = 1;
+        else if (hook.returnType == DHHookReturnCustomNumber) ret = [hook.customValue longLongValue];
+        newImp = imp_implementationWithBlock(^long long(id self, SEL _cmd) { return ret; });
+    } else if ([typeStr isEqualToString:@"f"] || [typeStr isEqualToString:@"d"]) {
+        // float / double
+        double ret = 0;
+        if (hook.returnType == DHHookReturnTrue) ret = 1.0;
+        else if (hook.returnType == DHHookReturnCustomNumber) ret = [hook.customValue doubleValue];
+        newImp = imp_implementationWithBlock(^double(id self, SEL _cmd) { return ret; });
+    } else if ([typeStr hasPrefix:@"@"]) {
+        // 对象类型 (id, NSObject*, NSString*, etc.)
+        id ret = nil;
+        if (hook.returnType == DHHookReturnTrue) ret = (__bridge id)kCFBooleanTrue;
+        else if (hook.returnType == DHHookReturnCustomString) ret = hook.customValue ?: @"";
+        else if (hook.returnType == DHHookReturnCustomNumber) ret = hook.customValue;
+        newImp = imp_implementationWithBlock(^id(id self, SEL _cmd) { return ret; });
+    } else {
+        // 未知类型，默认返回nil/0
+        newImp = imp_implementationWithBlock(^id(id self, SEL _cmd) { return nil; });
     }
 
-    // 根据返回类型构造block
-    id block = nil;
-    switch (hook.returnType) {
-        case DHHookReturnTrue: {
-            block = ^id(id self, SEL _cmd) { return (__bridge id)kCFBooleanTrue; };
-            break;
-        }
-        case DHHookReturnFalse: {
-            block = ^id(id self, SEL _cmd) { return nil; };
-            break;
-        }
-        case DHHookReturnNil: {
-            block = ^id(id self, SEL _cmd) { return nil; };
-            break;
-        }
-        case DHHookReturnZero: {
-            block = ^id(id self, SEL _cmd) { return nil; };
-            break;
-        }
-        case DHHookReturnCustomString: {
-            block = ^id(id self, SEL _cmd) { return hook.customValue ?: @""; };
-            break;
-        }
-        case DHHookReturnCustomNumber: {
-            NSNumber *num = [hook.customValue isKindOfClass:[NSNumber class]] ? hook.customValue : @([hook.customValue doubleValue]);
-            block = ^id(id self, SEL _cmd) { return num; };
-            break;
-        }
-        default: {
-            block = ^id(id self, SEL _cmd) {
-                IMP orig = [sOriginalIMPs[key] pointerValue];
-                return ((id(*)(id, SEL))orig)(self, _cmd);
-            };
-            break;
-        }
-    }
-
-    IMP newImp = imp_implementationWithBlock(block);
     method_setImplementation(m, newImp);
-    DHLogInfo(@"Hook成功: %@ %@ → 返回类型 %ld", hook.className, hook.selectorName, (long)hook.returnType);
+    DHLogInfo(@"Hook成功: %@ %@ retType=%@", hook.className, hook.selectorName, typeStr);
 }
 
 - (void)disableHook:(DHHookInfo *)hook {
     NSString *key = [NSString stringWithFormat:@"%@-%@", hook.className, hook.selectorName];
     NSValue *origVal = sOriginalIMPs[key];
     if (!origVal) return;
-
     Class cls = NSClassFromString(hook.className);
     if (!cls) return;
     if (hook.isClassMethod) cls = object_getClass(cls);
     SEL sel = NSSelectorFromString(hook.selectorName);
     Method m = class_getInstanceMethod(cls, sel);
-    if (m) {
-        method_setImplementation(m, [origVal pointerValue]);
-        DHLogInfo(@"Hook已禁用: %@ %@", hook.className, hook.selectorName);
-    }
+    if (m) method_setImplementation(m, [origVal pointerValue]);
 }
 
 - (void)addHook:(DHHookInfo *)hook {
@@ -160,11 +143,8 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)toggleHook:(DHHookInfo *)hook {
     hook.enabled = !hook.enabled;
-    if (hook.enabled) {
-        [self applyHook:hook];
-    } else {
-        [self disableHook:hook];
-    }
+    if (hook.enabled) [self applyHook:hook];
+    else [self disableHook:hook];
     [self saveHooks];
 }
 
@@ -173,15 +153,13 @@ static NSMutableDictionary *sOriginalIMPs;
     self.savedHooks = @[];
     self.savedPatches = @[];
     [self saveHooks];
-    DHLogInfo(@"已清空所有 Hook 配置");
 }
 
 - (NSString *)exportLogosCode {
     NSMutableString *code = [NSMutableString string];
-    [code appendString:@"// iOSDebugHelper 自动生成 Tweak.x\n\n"];
+    [code appendString:@"// iOSDebugHelper Tweak.x\n\n"];
     NSMutableSet *classes = [NSMutableSet new];
     for (DHHookInfo *h in self.savedHooks) [classes addObject:h.className];
-
     for (NSString *cls in classes) {
         [code appendFormat:@"%%hook %@\n", cls];
         for (DHHookInfo *h in self.savedHooks) {
@@ -193,11 +171,9 @@ static NSMutableDictionary *sOriginalIMPs;
                 case DHHookReturnFalse: [code appendString:@"    return NO;\n"]; break;
                 case DHHookReturnNil:   [code appendString:@"    return nil;\n"]; break;
                 case DHHookReturnZero:  [code appendString:@"    return 0;\n"]; break;
-                case DHHookReturnCustomString:
-                    [code appendFormat:@"    return @\"%@\";\n", h.customValue ?: @""]; break;
-                case DHHookReturnCustomNumber:
-                    [code appendFormat:@"    return %@;\n", h.customValue ?: @(0)]; break;
-                default: [code appendFormat:@"    %%orig(%@);\n", h.selectorName];
+                case DHHookReturnCustomString: [code appendFormat:@"    return @\"%@\";\n", h.customValue ?: @""]; break;
+                case DHHookReturnCustomNumber: [code appendFormat:@"    return %@;\n", h.customValue ?: @(0)]; break;
+                default: break;
             }
             [code appendString:@"}\n"];
         }

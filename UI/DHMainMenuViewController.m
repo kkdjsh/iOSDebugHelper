@@ -532,17 +532,18 @@
 }
 
 - (void)openScanResults {
-    NSData *cacheData = [[NSUserDefaults standardUserDefaults] dataForKey:@"DHScanCache"];
-    if (cacheData) {
-        NSArray *results = [NSKeyedUnarchiver unarchiveObjectWithData:cacheData];
-        if (results.count > 0) {
-            DHScanResultVC *vc = [DHScanResultVC new];
-            vc.allResults = results;
-            [self.navigationController pushViewController:vc animated:YES];
-            return;
-        }
+    // 内存缓存，避免每次都从NSUserDefaults解码大数组
+    static NSArray *sMemCache = nil;
+    if (!sMemCache) {
+        NSData *cacheData = [[NSUserDefaults standardUserDefaults] dataForKey:@"DHScanCache"];
+        if (cacheData) sMemCache = [NSKeyedUnarchiver unarchiveObjectWithData:cacheData];
     }
-    // 缓存还没准备好（刚启动正在扫描）
+    if (sMemCache.count > 0) {
+        DHScanResultVC *vc = [DHScanResultVC new];
+        vc.allResults = sMemCache;
+        [self.navigationController pushViewController:vc animated:YES];
+        return;
+    }
     [self showToast:@"扫描中，请稍后再打开..."];
 }
 
