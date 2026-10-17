@@ -59,7 +59,7 @@
 }
 
 - (NSArray *)folderNames {
-    NSMutableSet *set = [NSMutableSet new];
+    NSMutableSet *set = [NSMutableSet setWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
     for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
         if (h.folderName.length) [set addObject:h.folderName];
     }
@@ -130,6 +130,8 @@
     }
     c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@] %@", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName, retStr];
     c.textLabel.font = [UIFont systemFontOfSize:11];
+    c.textLabel.numberOfLines = 1;
+    c.textLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
     c.accessoryType = UITableViewCellAccessoryNone;
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = h.enabled;
@@ -183,12 +185,17 @@
             [self.tableView reloadData];
         }];
         UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除文件夹" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
-            NSMutableArray *toRemove = [NSMutableArray new];
-            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-                if ([h.folderName isEqualToString:fname]) [toRemove addObject:h];
-            }
-            for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
-            [self.tableView reloadData];
+            UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"确认删除" message:[NSString stringWithFormat:@"删除文件夹「%@」将同时删除内部所有补丁，确定？", fname] preferredStyle:UIAlertControllerStyleAlert];
+            [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+            [confirm addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *act) {
+                NSMutableArray *toRemove = [NSMutableArray new];
+                for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+                    if ([h.folderName isEqualToString:fname]) [toRemove addObject:h];
+                }
+                for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
+                [self.tableView reloadData];
+            }]];
+            [self presentViewController:confirm animated:YES completion:nil];
         }];
         return @[del, disableAll, enableAll];
     }
@@ -234,7 +241,13 @@
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"e.g. 广告拦截"; }];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-        // 文件夹只是个名字，补丁里带folderName就自动归类
+        NSString *name = a.textFields[0].text.trimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet];
+        if (!name.length) return;
+        NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+        if (![folders containsObject:name]) {
+            [folders addObject:name];
+            [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+        }
         [self.tableView reloadData];
     }]];
     [self presentViewController:a animated:YES completion:nil];
@@ -443,6 +456,34 @@
 }
 
 - (void)addHook:(DHScannerResult *)r returnType:(DHHookReturnType)type custom:(NSString *)custom {
+    // 先列出所有文件夹
+    NSMutableSet *folderSet = [NSMutableSet new];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if (h.folderName.length) [folderSet addObject:h.folderName];
+    }
+    NSArray *folders = [[folderSet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+
+    if (folders.count == 0) {
+        // 没有文件夹，直接存根目录
+        [self doAddHook:r returnType:type custom:custom folder:nil];
+        return;
+    }
+
+    // 有文件夹，弹出选择
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"请选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self doAddHook:r returnType:type custom:custom folder:nil];
+    }]];
+    for (NSString *fname in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self doAddHook:r returnType:type custom:custom folder:fname];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)doAddHook:(DHScannerResult *)r returnType:(DHHookReturnType)type custom:(NSString *)custom folder:(NSString *)folder {
     DHHookInfo *h = [DHHookInfo new];
     h.className = r.className;
     h.selectorName = r.methodName;
@@ -450,9 +491,10 @@
     if (h.isClassMethod) h.selectorName = [r.methodName stringByReplacingOccurrencesOfString:@"(class) " withString:@""];
     h.returnType = type;
     h.customValue = custom;
-    h.reason = [NSString stringWithFormat:@"扫描Hook: %@", r.matchedKeyword ?: @""];
+    h.folderName = folder;
     [[DHHookManager sharedManager] addHook:h];
-    [self showToast:[NSString stringWithFormat:@"已添加Hook: %@", r.methodName]];
+    NSString *loc = folder ?: @"根目录";
+    [self showToast:[NSString stringWithFormat:@"补丁已保存至 %@", loc]];
 }
 
 - (void)batchCopy {
