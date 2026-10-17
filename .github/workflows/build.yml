@@ -19,8 +19,10 @@ jobs:
           sudo git clone --recursive https://github.com/theos/theos.git /opt/theos
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
-      - name: Install dpkg
-        run: brew install dpkg
+      - name: Install dpkg and ldid
+        run: |
+          brew install dpkg
+          brew install ldid
 
       - name: Clone FLEX dependency
         run: |
