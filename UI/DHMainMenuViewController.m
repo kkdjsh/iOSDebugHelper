@@ -228,10 +228,19 @@
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
     // 直接把搜索栏放在tableView顶部，不用UISearchController，导航按钮永远在
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
-    self.searchBar.placeholder = @"搜索类名或方法名...";
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 80)];
+    self.searchBar.placeholder = @"搜索...";
     self.searchBar.delegate = self;
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    // 加范围按钮：全部/类名/方法名
+    self.searchBar.scopeButtonTitles = @[@"全部", @"类名", @"方法名"];
+    self.searchBar.selectedScopeButtonIndex = 0;
+    self.searchBar.showsScopeBar = YES;
+    // 键盘上加完成按钮
+    UIToolbar *tool = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 0, 44)];
+    tool.items = @[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+                   [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(dismissKeyboard)]];
+    self.searchBar.inputAccessoryView = tool;
     self.tableView.tableHeaderView = self.searchBar;
 
     self.filteredResults = self.allResults;
@@ -373,6 +382,7 @@
     // 防抖0.3秒，后台过滤
     [_searchDebounce invalidate];
     NSString *kw = [searchText lowercaseString];
+    NSInteger scope = searchBar.selectedScopeButtonIndex;
     NSArray *all = self.allResults;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -380,7 +390,14 @@
             if (!kw.length) {
                 result = all;
             } else {
-                NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+                NSPredicate *pred;
+                if (scope == 1) {
+                    pred = [NSPredicate predicateWithFormat:@"className CONTAINS[cd] %@", kw];
+                } else if (scope == 2) {
+                    pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@", kw];
+                } else {
+                    pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+                }
                 result = [all filteredArrayUsingPredicate:pred];
             }
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -389,6 +406,14 @@
             });
         });
     }];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar selectedScopeButtonIndexDidChange:(NSInteger)selectedScope {
+    [self searchBar:searchBar textDidChange:searchBar.text];
+}
+
+- (void)dismissKeyboard {
+    [self.searchBar resignFirstResponder];
 }
 
 - (void)showToast:(NSString *)msg {
