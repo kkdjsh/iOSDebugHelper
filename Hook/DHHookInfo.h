@@ -27,6 +27,7 @@ typedef NS_ENUM(NSInteger, DHHookReturnType) {
 @property (nonatomic, copy, nullable) id customValue;
 @property (nonatomic, copy)   NSString *reason;  // 用途说明
 @property (nonatomic, assign) BOOL enabled;       // 是否启用
+@property (nonatomic, copy, nullable) NSString *folderName; // 所属文件夹
 @end
 
 NS_ASSUME_NONNULL_END

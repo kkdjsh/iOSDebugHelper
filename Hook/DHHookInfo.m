@@ -14,6 +14,7 @@
     [c encodeInteger:self.returnType forKey:@"returnType"];
     [c encodeObject:self.customValue forKey:@"customValue"];
     [c encodeObject:self.reason forKey:@"reason"];
+    [c encodeObject:self.folderName forKey:@"folderName"];
 }
 - (instancetype)initWithCoder:(NSCoder *)c {
     self = [super init];
@@ -24,6 +25,7 @@
         _returnType = [c decodeIntegerForKey:@"returnType"];
         _customValue = [c decodeObjectForKey:@"customValue"];
         _reason = [c decodeObjectOfClass:NSString.class forKey:@"reason"];
+        _folderName = [c decodeObjectOfClass:NSString.class forKey:@"folderName"];
     }
     return self;
 }

@@ -42,33 +42,95 @@
 
 #pragma mark - 补丁管理控制器
 @interface DHPatchListVC : UITableViewController
+@property (nonatomic, copy, nullable) NSString *currentFolder; // nil=根目录
 @end
 @implementation DHPatchListVC
+
+- (NSArray *)visibleHooks {
+    NSMutableArray *arr = [NSMutableArray new];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if (self.currentFolder) {
+            if ([h.folderName isEqualToString:self.currentFolder]) [arr addObject:h];
+        } else {
+            if (!h.folderName.length) [arr addObject:h];
+        }
+    }
+    return arr;
+}
+
+- (NSArray *)folderNames {
+    NSMutableSet *set = [NSMutableSet new];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if (h.folderName.length) [set addObject:h.folderName];
+    }
+    return [[set allObjects] sortedArrayUsingSelector:@selector(compare:)];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"补丁管理";
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addHook)];
+    self.title = self.currentFolder ?: @"补丁管理";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addMenu)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
-- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return [DHHookManager sharedManager].savedHooks.count; }
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t {
+    if (self.currentFolder) return 1;
+    return 2; // section0=文件夹, section1=根目录补丁
+}
+
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+    if (self.currentFolder) return [self visibleHooks].count;
+    if (s == 0) return [self folderNames].count;
+    return [self visibleHooks].count;
+}
+
+- (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
+    if (self.currentFolder) return nil;
+    if (s == 0) return @"文件夹";
+    return @"根目录补丁";
+}
+
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
-    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
+
+    if (!self.currentFolder && ip.section == 0) {
+        // 文件夹行
+        NSString *fname = [self folderNames][ip.row];
+        NSInteger count = 0;
+        BOOL allOn = YES, anyOn = NO;
+        for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+            if ([h.folderName isEqualToString:fname]) {
+                count++;
+                if (h.enabled) anyOn = YES; else allOn = NO;
+            }
+        }
+        c.textLabel.text = [NSString stringWithFormat:@"📁 %@ (%ld条)", fname, (long)count];
+        c.textLabel.font = [UIFont systemFontOfSize:14];
+        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = anyOn;
+        sw.tag = 9000 + ip.row;
+        [sw addTarget:self action:@selector(folderSwitchToggled:) forControlEvents:UIControlEventValueChanged];
+        c.accessoryView = sw;
+        return c;
+    }
+
+    // 补丁行
+    DHHookInfo *h = [self visibleHooks][ip.row];
     NSString *retStr;
     switch (h.returnType) {
-        case DHHookReturnTrue: retStr = @"返回TRUE"; break;
-        case DHHookReturnFalse: retStr = @"返回FALSE"; break;
-        case DHHookReturnNil: retStr = @"返回nil"; break;
-        case DHHookReturnZero: retStr = @"返回0"; break;
-        case DHHookReturnCustomString: retStr = [NSString stringWithFormat:@"返回\"%@\"", h.customValue ?: @""]; break;
-        case DHHookReturnCustomNumber: retStr = [NSString stringWithFormat:@"返回%@", h.customValue ?: @0]; break;
+        case DHHookReturnTrue: retStr = @"→TRUE"; break;
+        case DHHookReturnFalse: retStr = @"→FALSE"; break;
+        case DHHookReturnNil: retStr = @"→nil"; break;
+        case DHHookReturnZero: retStr = @"→0"; break;
+        case DHHookReturnCustomString: retStr = [NSString stringWithFormat:@"→\"%@\"", h.customValue ?: @""]; break;
+        case DHHookReturnCustomNumber: retStr = [NSString stringWithFormat:@"→%@", h.customValue ?: @0]; break;
         default: retStr = @""; break;
     }
-    c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@]\n→ %@", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName, retStr];
+    c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@] %@", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName, retStr];
     c.textLabel.font = [UIFont systemFontOfSize:11];
-    c.textLabel.numberOfLines = 2;
-    // 开关
+    c.accessoryType = UITableViewCellAccessoryNone;
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = h.enabled;
     sw.tag = ip.row;
@@ -76,29 +138,71 @@
     c.accessoryView = sw;
     return c;
 }
+
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:YES];
+    if (!self.currentFolder && ip.section == 0) {
+        NSString *fname = [self folderNames][ip.row];
+        DHPatchListVC *vc = [DHPatchListVC new];
+        vc.currentFolder = fname;
+        [self.navigationController pushViewController:vc animated:YES];
+    }
+}
+
 - (void)switchToggled:(UISwitch *)sw {
-    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[sw.tag];
+    DHHookInfo *h = [self visibleHooks][sw.tag];
     [[DHHookManager sharedManager] toggleHook:h];
     [self.tableView reloadData];
 }
-- (void)tableView:(UITableView *)t commitEditingStyle:(UITableViewCellEditingStyle)e forRowAtIndexPath:(NSIndexPath *)ip {
-    if (e == UITableViewCellEditingStyleDelete) {
-        DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
-        [[DHHookManager sharedManager] removeHook:h];
-        [t deleteRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationAutomatic];
+
+- (void)folderSwitchToggled:(UISwitch *)sw {
+    NSString *fname = [self folderNames][sw.tag - 9000];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if ([h.folderName isEqualToString:fname]) {
+            if (sw.on && !h.enabled) [[DHHookManager sharedManager] toggleHook:h];
+            else if (!sw.on && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
+        }
     }
+    [self.tableView reloadData];
 }
+
 - (NSArray *)tableView:(UITableView *)t editActionsForRowAtIndexPath:(NSIndexPath *)ip {
-    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
-    UITableViewRowAction *edit = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"编辑" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
-        [self editHook:h];
-    }];
+    if (!self.currentFolder && ip.section == 0) {
+        // 文件夹左滑
+        NSString *fname = [self folderNames][ip.row];
+        UITableViewRowAction *enableAll = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"启用全部" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+                if ([h.folderName isEqualToString:fname] && !h.enabled) [[DHHookManager sharedManager] toggleHook:h];
+            }
+            [self.tableView reloadData];
+        }];
+        UITableViewRowAction *disableAll = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"关闭全部" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+                if ([h.folderName isEqualToString:fname] && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
+            }
+            [self.tableView reloadData];
+        }];
+        UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除文件夹" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+            NSMutableArray *toRemove = [NSMutableArray new];
+            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+                if ([h.folderName isEqualToString:fname]) [toRemove addObject:h];
+            }
+            for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
+            [self.tableView reloadData];
+        }];
+        return @[del, disableAll, enableAll];
+    }
+
+    // 补丁左滑
+    DHHookInfo *h = [self visibleHooks][ip.row];
+    UITableViewRowAction *edit = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"编辑" handler:^(UITableViewRowAction *a, NSIndexPath *idx) { [self editHook:h]; }];
     UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
         [[DHHookManager sharedManager] removeHook:h];
-        [t deleteRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [self.tableView reloadData];
     }];
     return @[del, edit];
 }
+
 - (void)editHook:(DHHookInfo *)h {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"返回0",@"自定义字符串",@"自定义数字"]) {
@@ -116,8 +220,28 @@
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
+
+- (void)addMenu {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [a addAction:[UIAlertAction actionWithTitle:@"新建补丁" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) { [self addHook]; }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"新建文件夹" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) { [self addFolder]; }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)addFolder {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建文件夹" message:@"输入文件夹名称" preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"e.g. 广告拦截"; }];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        // 文件夹只是个名字，补丁里带folderName就自动归类
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
 - (void)addHook {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"添加Hook" message:@"输入 类名/方法名" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"添加Hook" message:@"输入 类名/方法名/返回值" preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"类名 e.g. VipManager"; }];
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"方法名 e.g. isVip"; }];
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"返回值: true/false/nil/0"; f.text = @"true"; }];
@@ -131,6 +255,7 @@
         h.className = cls;
         h.selectorName = sel;
         h.isClassMethod = NO;
+        h.folderName = self.currentFolder; // 记录在哪个文件夹里创建的
         if ([ret isEqualToString:@"true"]) h.returnType = DHHookReturnTrue;
         else if ([ret isEqualToString:@"false"]) h.returnType = DHHookReturnFalse;
         else if ([ret isEqualToString:@"nil"]) h.returnType = DHHookReturnNil;
@@ -138,15 +263,6 @@
         [[DHHookManager sharedManager] addHook:h];
         [self.tableView reloadData];
     }]];
-    [self presentViewController:a animated:YES completion:nil];
-}
-- (void)tableView:(UITableView *)t accessoryButtonTappedForRowWithIndexPath:(NSIndexPath *)ip {
-    NSString *code = [[DHHookManager sharedManager] exportLogosCode];
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"导出Logos代码" message:code preferredStyle:UIAlertControllerStyleActionSheet];
-    [a addAction:[UIAlertAction actionWithTitle:@"复制代码" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-        [UIPasteboard generalPasteboard].string = code;
-    }]];
-    [a addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
 @end
