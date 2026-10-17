@@ -1,7 +1,7 @@
 //
 //  DHAdScanner.m
 //  iOSDebugHelper
-//  扫描全部已加载ObjC类和方法，不预设关键词过滤
+//  智能扫描(VIP/广告关键词) + 全局扫描(全量dump)
 //
 
 #import "DHAdScanner.h"
@@ -21,12 +21,96 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _adKeywords = @[];
-        _vipKeywords = @[];
+        // 智能扫描关键词库 - 精准匹配VIP/广告/付费相关
+        _adKeywords = @[@"showAd", @"loadAd", @"closeAd", @"skipAd", @"adView", @"adBanner",
+                        @"GADRequest", @"GADBanner", @"GADInterstitial", @"GADRewarded",
+                        @"FBAdView", @"FBInterstitialAd", @"AdMob",
+                        @"splashAd", @"interstitialAd", @"rewardedAd", @"bannerAd",
+                        @"isAdLoaded", @"hasAd", @"adIsReady", @"showSplashAd",
+                        @"buAd", @"csjAd", @"gdtAd", @"ttAd", @"ADView", @"ADBanner"];
+        _vipKeywords = @[@"isVip", @"IsVip", @"hasVip", @"checkVip", @"vipStatus",
+                         @"isMember", @"hasMember", @"isPremium", @"isPro",
+                         @"isSubscribed", @"isSubscribing", @"hasActiveSubscription",
+                         @"isPurchased", @"isUnlocked", @"isLocked",
+                         @"canPlay", @"canAccess", @"hasPermission",
+                         @"purchaseProduct", @"buyProduct", @"restorePurchase",
+                         @"showPaywall", @"showPay", @"showIAP",
+                         @"productId", @"productIdentifier", @"storeProduct",
+                         @"receiptData", @"verifyReceipt", @"validateReceipt",
+                         @"trialExpired", @"isTrial", @"trialEndDate",
+                         @"unlockItem", @"lockItem", @"isRestricted",
+                         @"shouldLockForProductIdentifier", @"isProductPurchased"];
         _customKeywords = @[];
     }
     return self;
 }
+
+#pragma mark - 智能扫描（关键词匹配）
+
+- (void)scanSmartWithProgress:(void(^)(NSUInteger, NSUInteger))progress
+                   completion:(void(^)(NSArray<DHScannerResult *> *))completion {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSMutableArray *results = [NSMutableArray new];
+        unsigned int classCount;
+        Class *classes = objc_copyClassList(&classCount);
+        NSMutableArray *allKeywords = [NSMutableArray new];
+        [allKeywords addObjectsFromArray:self.adKeywords];
+        [allKeywords addObjectsFromArray:self.vipKeywords];
+        [allKeywords addObjectsFromArray:self.customKeywords];
+
+        for (unsigned int i = 0; i < classCount; i++) {
+            @autoreleasepool {
+                Class cls = classes[i];
+                NSString *className = NSStringFromClass(cls);
+
+                // 检查类名是否匹配关键词
+                for (NSString *kw in allKeywords) {
+                    if ([className localizedCaseInsensitiveContainsString:kw]) {
+                        DHScannerResult *r = [DHScannerResult new];
+                        r.methodName = @"(class)";
+                        r.className = className;
+                        r.matchedKeyword = kw;
+                        if ([self.adKeywords containsObject:kw]) r.category = DHScannerCategoryAd;
+                        else if ([self.vipKeywords containsObject:kw]) r.category = DHScannerCategoryVIP;
+                        else r.category = DHScannerCategorySuspicious;
+                        [results addObject:r];
+                        break;
+                    }
+                }
+
+                // 遍历实例方法
+                unsigned int methodCount;
+                Method *methods = class_copyMethodList(cls, &methodCount);
+                for (unsigned int j = 0; j < methodCount; j++) {
+                    SEL sel = method_getName(methods[j]);
+                    NSString *selName = NSStringFromSelector(sel);
+                    for (NSString *kw in allKeywords) {
+                        if ([selName localizedCaseInsensitiveContainsString:kw]) {
+                            DHScannerResult *r = [DHScannerResult new];
+                            r.methodName = selName;
+                            r.className = className;
+                            r.matchedKeyword = kw;
+                            if ([self.adKeywords containsObject:kw]) r.category = DHScannerCategoryAd;
+                            else if ([self.vipKeywords containsObject:kw]) r.category = DHScannerCategoryVIP;
+                            else r.category = DHScannerCategorySuspicious;
+                            [results addObject:r];
+                            break;
+                        }
+                    }
+                }
+                free(methods);
+
+                if (progress && i % 100 == 0) progress(i, classCount);
+            }
+        }
+        free(classes);
+
+        DHLogInfo(@"智能扫描完成: %lu 条结果", (unsigned long)results.count);
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(results); });
+    });
+}
+
+#pragma mark - 全局扫描（全量dump）
 
 - (void)scanAllClassesWithProgress:(void(^)(NSUInteger, NSUInteger))progress
                         completion:(void(^)(NSArray<DHScannerResult *> *))completion {
@@ -40,7 +124,7 @@
                 Class cls = classes[i];
                 NSString *className = NSStringFromClass(cls);
 
-                // 过滤掉纯系统框架类，但保留App自己的类（包括Swift类_Tt开头的）
+                // 过滤纯系统框架类
                 if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] ||
                     [className hasPrefix:@"CA"] || [className hasPrefix:@"CF"] ||
                     [className hasPrefix:@"WK"] || [className hasPrefix:@"AV"] ||
@@ -50,7 +134,7 @@
                     [className hasPrefix:@"MT"] || [className hasPrefix:@"MK"] ||
                     [className hasPrefix:@"CL"] || [className hasPrefix:@"CN"] ||
                     [className hasPrefix:@"MF"] || [className hasPrefix:@"PK"] ||
-                    [className hasPrefix:@"_Tt"] ||  // 跳过Swift系统mangled name
+                    [className hasPrefix:@"_Tt"] ||
                     [className containsString:@"Proxy"] ||
                     [className containsString:@"Weak"]) {
                     continue;
@@ -70,7 +154,6 @@
                 for (unsigned int j = 0; j < methodCount; j++) {
                     SEL sel = method_getName(methods[j]);
                     NSString *selName = NSStringFromSelector(sel);
-                    // 过滤NSObject boilerplate
                     if ([selName isEqualToString:@"isProxy"] ||
                         [selName isEqualToString:@"isMemberOfClass:"] ||
                         [selName isEqualToString:@"isKindOfClass:"] ||
@@ -100,10 +183,8 @@
         }
         free(classes);
 
-        DHLogInfo(@"扫描完成: 共 %u 个类, %lu 条结果", classCount, (unsigned long)results.count);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            completion(results);
-        });
+        DHLogInfo(@"全局扫描完成: %lu 条结果", (unsigned long)results.count);
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(results); });
     });
 }
 
@@ -117,7 +198,6 @@
     }
     NSString *text = [lines componentsJoinedByString:@"\n"];
     UIPasteboard.generalPasteboard.string = text;
-    DHLogInfo(@"批量复制 %ld 条结果到剪贴板", (long)n);
     return text;
 }
 

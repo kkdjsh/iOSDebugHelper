@@ -512,7 +512,7 @@
     NSString *action = item[@"action"];
 
     if ([action isEqualToString:@"openScanner"]) {
-        [self runGlobalScan];
+        [self runSmartScan];
     } else if ([action isEqualToString:@"openDataMonitor"]) {
         [self showDataMonitor];
     } else if ([action isEqualToString:@"openPatches"]) {
@@ -522,7 +522,7 @@
         DHNetworkRuleListVC *vc = [DHNetworkRuleListVC new];
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openGlobalScan"]) {
-        [self runGlobalScan];
+        [self runFullScan];
     } else if ([action isEqualToString:@"openLogs"]) {
         [self showLogs];
     } else if ([action isEqualToString:@"openAbout"]) {
@@ -536,22 +536,39 @@
     }
 }
 
-- (void)runGlobalScan {
-    // 先查缓存
-    NSArray *cached = [DHScanResultVC loadCachedResults];
+- (void)runSmartScan {
+    NSArray *cached = [[NSUserDefaults standardUserDefaults] objectForKey:@"DHSmartScanCache"];
     if (cached.count > 0) {
         DHScanResultVC *vc = [DHScanResultVC new];
-        vc.allResults = cached;
+        vc.allResults = [NSKeyedUnarchiver unarchiveObjectWithData:[[NSUserDefaults standardUserDefaults] dataForKey:@"DHSmartScanCache"]];
         [self.navigationController pushViewController:vc animated:YES];
         return;
     }
-    // 无缓存，重新扫描
-    [self showToast:@"开始扫描..."];
-    [[DHAdScanner sharedScanner] scanAllClassesWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
+    [self showToast:@"智能扫描中..."];
+    [[DHAdScanner sharedScanner] scanSmartWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            [[NSUserDefaults standardUserDefaults] setObject:[NSKeyedArchiver archivedDataWithRootObject:results] forKey:@"DHSmartScanCache"];
             DHScanResultVC *vc = [DHScanResultVC new];
             vc.allResults = results;
-            [vc cacheResults:results];
+            [self.navigationController pushViewController:vc animated:YES];
+        });
+    }];
+}
+
+- (void)runFullScan {
+    NSArray *cached = [[NSUserDefaults standardUserDefaults] objectForKey:@"DHFullScanCache"];
+    if (cached.count > 0) {
+        DHScanResultVC *vc = [DHScanResultVC new];
+        vc.allResults = [NSKeyedUnarchiver unarchiveObjectWithData:[[NSUserDefaults standardUserDefaults] dataForKey:@"DHFullScanCache"]];
+        [self.navigationController pushViewController:vc animated:YES];
+        return;
+    }
+    [self showToast:@"全局扫描中..."];
+    [[DHAdScanner sharedScanner] scanAllClassesWithProgress:nil completion:^(NSArray<DHScannerResult *> *results) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[NSUserDefaults standardUserDefaults] setObject:[NSKeyedArchiver archivedDataWithRootObject:results] forKey:@"DHFullScanCache"];
+            DHScanResultVC *vc = [DHScanResultVC new];
+            vc.allResults = results;
             [self.navigationController pushViewController:vc animated:YES];
         });
     }];

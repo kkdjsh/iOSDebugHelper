@@ -30,10 +30,13 @@ typedef NS_ENUM(NSInteger, DHScannerCategory) {
 
 + (instancetype)sharedScanner;
 
-/// 全局扫描：遍历已加载的 ObjC 类和方法
-/// @param completion 完成回调，返回分类后的结果
+/// 全局扫描：遍历已加载的 ObjC 类和方法（全量dump）
 - (void)scanAllClassesWithProgress:(void(^)(NSUInteger current, NSUInteger total))progress
                          completion:(void(^)(NSArray<DHScannerResult *> *results))completion;
+
+/// 智能扫描：只匹配VIP/广告/付费相关关键词
+- (void)scanSmartWithProgress:(void(^)(NSUInteger current, NSUInteger total))progress
+                   completion:(void(^)(NSArray<DHScannerResult *> *results))completion;
 
 /// 批量复制前 N 条结果到剪贴板
 /// @param count 前N条

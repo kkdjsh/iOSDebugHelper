@@ -30,6 +30,8 @@ static void DHInitializeDebugHelper(void) {
                                                           object:nil queue:nil
                                                       usingBlock:^(NSNotification *note) {
             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHCachedScanResults"];
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHSmartScanCache"];
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHFullScanCache"];
             DHLogDebug(@"App进入后台，已清除扫描缓存");
         }];
 
