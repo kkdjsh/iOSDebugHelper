@@ -1,6 +1,7 @@
 //
 //  DHAdScanner.m
 //  iOSDebugHelper
+//  扫描全部已加载ObjC类和方法，不预设关键词过滤
 //
 
 #import "DHAdScanner.h"
@@ -20,15 +21,8 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _adKeywords = @[@"Ad", @"Advertisement", @"Banner", @"Interstitial", @"Rewarded",
-                        @"Splash", @"Popup", @"GAD", @"GADRequest", @"GADBannerView",
-                        @"FBAd", @"AdMob", @"AdView", @"AdCell", @"AdLoader",
-                        @"showAd", @"loadAd", @"closeAd", @"skipAd"];
-        _vipKeywords = @[@"Vip", @"VIP", @"Premium", @"Member", @"Membership",
-                         @"Purchase", @"Pay", @"Subscribe", @"Subscription", @"Trial",
-                         @"Unlock", @"IsVip", @"isVip",
-                         @"hasPermission", @"unlock", @"restriction",
-                         @"Receipt", @"IAP", @"StoreKit", @"productId"];
+        _adKeywords = @[];
+        _vipKeywords = @[];
         _customKeywords = @[];
     }
     return self;
@@ -40,47 +34,35 @@
         NSMutableArray *results = [NSMutableArray new];
         unsigned int classCount;
         Class *classes = objc_copyClassList(&classCount);
-        NSMutableArray *allKeywords = [NSMutableArray new];
-        [allKeywords addObjectsFromArray:self.adKeywords];
-        [allKeywords addObjectsFromArray:self.vipKeywords];
-        [allKeywords addObjectsFromArray:self.customKeywords];
 
         for (unsigned int i = 0; i < classCount; i++) {
             @autoreleasepool {
                 Class cls = classes[i];
                 NSString *className = NSStringFromClass(cls);
 
-                // 过滤掉系统框架类，只保留App自己的类
+                // 过滤掉纯系统框架类，但保留App自己的类（包括Swift类_Tt开头的）
                 if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] ||
                     [className hasPrefix:@"CA"] || [className hasPrefix:@"CF"] ||
-                    [className hasPrefix:@"_NS"] || [className hasPrefix:@"__NS"] ||
                     [className hasPrefix:@"WK"] || [className hasPrefix:@"AV"] ||
-                    [className hasPrefix:@"CK"] || [className hasPrefix:@"OS"] ||
-                    [className hasPrefix:@"DF"] || [className hasPrefix:@"LS"] ||
-                    [className hasPrefix:@"SL"] || [className hasPrefix:@"TL"] ||
-                    [className hasPrefix:@"TU"] || [className hasPrefix:@"MT"] ||
-                    [className containsString:@"Proxy"] || [className containsString:@"Weak"]) {
+                    [className hasPrefix:@"OS"] || [className hasPrefix:@"DF"] ||
+                    [className hasPrefix:@"LS"] || [className hasPrefix:@"SL"] ||
+                    [className hasPrefix:@"TL"] || [className hasPrefix:@"TU"] ||
+                    [className hasPrefix:@"MT"] || [className hasPrefix:@"MK"] ||
+                    [className hasPrefix:@"CL"] || [className hasPrefix:@"CN"] ||
+                    [className hasPrefix:@"MF"] || [className hasPrefix:@"PK"] ||
+                    [className hasPrefix:@"_Tt"] ||  // 跳过Swift系统mangled name
+                    [className containsString:@"Proxy"] ||
+                    [className containsString:@"Weak"]) {
                     continue;
                 }
 
-                // 检查类名是否匹配关键词
-                for (NSString *kw in allKeywords) {
-                    if ([className localizedCaseInsensitiveContainsString:kw]) {
-                        DHScannerResult *r = [DHScannerResult new];
-                        r.methodName = @"(class)";
-                        r.className = className;
-                        r.matchedKeyword = kw;
-                        if ([self.adKeywords containsObject:kw]) {
-                            r.category = DHScannerCategoryAd;
-                        } else if ([self.vipKeywords containsObject:kw]) {
-                            r.category = DHScannerCategoryVIP;
-                        } else {
-                            r.category = DHScannerCategorySuspicious;
-                        }
-                        [results addObject:r];
-                        break;
-                    }
-                }
+                // 添加类本身
+                DHScannerResult *cr = [DHScannerResult new];
+                cr.methodName = @"(class)";
+                cr.className = className;
+                cr.category = DHScannerCategorySuspicious;
+                cr.matchedKeyword = @"";
+                [results addObject:cr];
 
                 // 遍历实例方法
                 unsigned int methodCount;
@@ -88,7 +70,7 @@
                 for (unsigned int j = 0; j < methodCount; j++) {
                     SEL sel = method_getName(methods[j]);
                     NSString *selName = NSStringFromSelector(sel);
-                    // 过滤掉NSObject boilerplate方法
+                    // 过滤NSObject boilerplate
                     if ([selName isEqualToString:@"isProxy"] ||
                         [selName isEqualToString:@"isMemberOfClass:"] ||
                         [selName isEqualToString:@"isKindOfClass:"] ||
@@ -104,23 +86,12 @@
                         [selName isEqualToString:@"debugDescription"]) {
                         continue;
                     }
-                    for (NSString *kw in allKeywords) {
-                        if ([selName localizedCaseInsensitiveContainsString:kw]) {
-                            DHScannerResult *r = [DHScannerResult new];
-                            r.methodName = selName;
-                            r.className = className;
-                            r.matchedKeyword = kw;
-                            if ([self.adKeywords containsObject:kw]) {
-                                r.category = DHScannerCategoryAd;
-                            } else if ([self.vipKeywords containsObject:kw]) {
-                                r.category = DHScannerCategoryVIP;
-                            } else {
-                                r.category = DHScannerCategorySuspicious;
-                            }
-                            [results addObject:r];
-                            break;
-                        }
-                    }
+                    DHScannerResult *r = [DHScannerResult new];
+                    r.methodName = selName;
+                    r.className = className;
+                    r.category = DHScannerCategorySuspicious;
+                    r.matchedKeyword = @"";
+                    [results addObject:r];
                 }
                 free(methods);
 
@@ -129,7 +100,7 @@
         }
         free(classes);
 
-        DHLogInfo(@"扫描完成: 共 %u 个类, 命中 %lu 条结果", classCount, (unsigned long)results.count);
+        DHLogInfo(@"扫描完成: 共 %u 个类, %lu 条结果", classCount, (unsigned long)results.count);
         dispatch_async(dispatch_get_main_queue(), ^{
             completion(results);
         });

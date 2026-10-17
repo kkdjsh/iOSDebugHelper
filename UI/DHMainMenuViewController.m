@@ -288,8 +288,7 @@
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
     DHScannerResult *r = self.filteredResults[ip.row];
-    NSString *prefix = r.matchedKeyword ? [NSString stringWithFormat:@"[%@] ", r.matchedKeyword] : @"";
-    c.textLabel.text = [NSString stringWithFormat:@"%@-%@\nIn Class: %@", prefix, r.methodName, r.className];
+    c.textLabel.text = [NSString stringWithFormat:@"-%@\nIn Class: %@", r.methodName, r.className];
     c.textLabel.font = [UIFont systemFontOfSize:11];
     c.textLabel.numberOfLines = 2;
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
