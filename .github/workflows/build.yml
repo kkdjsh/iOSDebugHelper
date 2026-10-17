@@ -19,14 +19,15 @@ jobs:
           sudo git clone --recursive https://github.com/theos/theos.git /opt/theos
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
+      - name: Install dpkg
+        run: brew install dpkg
+
       - name: Clone FLEX dependency
         run: |
           mkdir -p Headers
           git clone --depth 1 https://github.com/FLEXTool/FLEX.git Headers/FLEX
-          echo "=== FLEX directory structure ==="
-          ls -la Headers/FLEX/
-          echo "=== Find all .m files ==="
-          find Headers/FLEX -name "*.m" ! -name "*Test*" | head -30
+          echo "=== FLEX source files ==="
+          find Headers/FLEX -name "*.m" ! -name "*Test*" | wc -l
 
       - name: Build tweak
         run: |
@@ -34,26 +35,29 @@ jobs:
 
           # 收集 FLEX 所有 .m 源文件
           FLEX_SOURCES=$(find Headers/FLEX -name "*.m" ! -name "*Test*" ! -name "main.m" | tr '\n' ' ')
-          echo "FLEX sources count: $(echo $FLEX_SOURCES | wc -w)"
-
-          # 获取 FLEX 头文件目录
-          FLEX_INCLUDES=$(find Headers/FLEX -type d -name "*.framework" -prune -o -type d -print | grep -v ".git" | sed 's/^/-I/' | tr '\n' ' ')
+          echo "FLEX sources: $(echo $FLEX_SOURCES | wc -w) files"
 
           # 动态追加到 Makefile
           echo "iOSDebugHelper_FILES += $FLEX_SOURCES" >> Makefile
-          echo "iOSDebugHelper_CFLAGS += $FLEX_INCLUDES -IHeaders/FLEX" >> Makefile
+          echo "iOSDebugHelper_CFLAGS += -IHeaders/FLEX" >> Makefile
 
-          make package THEOS=/opt/theos ARCHS="arm64" 2>&1 | tail -50
+          echo "=== Makefile content ==="
+          cat Makefile
+
+          make package THEOS=/opt/theos ARCHS="arm64" 2>&1 | tail -60
 
       - name: Extract dylib from deb
         if: success()
         run: |
           mkdir -p output
           DEB_FILE=$(ls packages/*.deb | head -1)
-          echo "Extracting from: $DEB_FILE"
+          echo "DEB: $DEB_FILE"
           dpkg-deb -x "$DEB_FILE" output/
-          find output/ -name "*.dylib" -exec cp {} output/iOSDebugHelper.dylib \;
-          ls -la output/
+          echo "=== Files in deb ==="
+          find output/ -type f
+          DYLIB=$(find output/ -name "*.dylib" | head -1)
+          cp "$DYLIB" output/iOSDebugHelper.dylib
+          ls -la output/iOSDebugHelper.dylib
 
       - uses: actions/upload-artifact@v4
         if: success()
