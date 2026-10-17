@@ -119,7 +119,7 @@
                     [code appendFormat:@"    return @\"%@\";\n", h.customValue ?: @""]; break;
                 case DHHookReturnCustomNumber:
                     [code appendFormat:@"    return %@;\n", h.customValue ?: @(0)]; break;
-                default: [code appendString:@"    %%%@;\n", NSStringFromSelector(_cmd)];
+                default: [code appendFormat:@"    %%orig(%@);\n", NSStringFromSelector(h.selectorName)];
             }
             [code appendString:@"}\n"];
         }
