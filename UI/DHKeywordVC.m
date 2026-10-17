@@ -14,6 +14,7 @@
 @property (nonatomic, strong) NSMutableArray *folders;
 @property (nonatomic, assign) NSInteger folderIdx;
 @property (nonatomic, assign) NSInteger fileIdx;
+@property (nonatomic, strong) UITextView *tv;
 @end
 
 #pragma mark - 文件夹列表
