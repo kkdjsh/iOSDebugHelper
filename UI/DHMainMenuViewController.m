@@ -12,6 +12,7 @@
 #import "DHRuleManager.h"
 #import "DHInterceptRule.h"
 #import "DHCryptManager.h"
+#import "DHKeywordVC.h"
 
 #pragma mark - 通用列表控制器
 @interface DHSimpleListVC : UITableViewController
@@ -581,7 +582,10 @@
     [super viewDidLoad];
     self.title = @"扫描结果";
     _filterSystemClasses = YES;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)];
+    self.navigationItem.rightBarButtonItems = @[
+        [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
+    ];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
     self.tableView.rowHeight = 44;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
@@ -815,6 +819,48 @@
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+- (void)openKeywordMenu {
+    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
+    if (folders.count == 0) { [self showToast:@"请先在主界面创建词库"]; return; }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择词库" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary *f in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:f[@"name"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyKeywordFolder:f];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)applyKeywordFolder:(NSDictionary *)folder {
+    NSMutableSet *kws = [NSMutableSet new];
+    for (NSDictionary *file in folder[@"files"]) {
+        NSString *content = file[@"content"];
+        NSArray *parts = [content componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@",， \n"]];
+        for (NSString *p in parts) {
+            NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            if (t.length) [kws addObject:t.lowercaseString];
+        }
+    }
+    if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSMutableArray *result = [NSMutableArray new];
+        for (DHScannerResult *r in self.allResults) {
+            NSString *cn = r.className.lowercaseString;
+            NSString *mn = r.methodName.lowercaseString;
+            for (NSString *kw in kws) {
+                if ([cn containsString:kw] || [mn containsString:kw]) { [result addObject:r]; break; }
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.filteredResults = result;
+            [self.tableView reloadData];
+            [self showToast:[NSString stringWithFormat:@"匹配到 %lu 条", (unsigned long)result.count]];
+        });
+    });
+}
+
 - (void)applyFilter {
     [self searchBar:self.searchBar textDidChange:self.searchBar.text];
 }
@@ -900,6 +946,7 @@
                 @{@"title": @"智能扫描助手", @"icon": @"sparkles", @"action": @"openScanner"},
                 @{@"title": @"数据分析",     @"icon": @"chart.bar.fill", @"action": @"openDataMonitor"},
                 @{@"title": @"补丁管理",     @"icon": @"puzzlepiece.fill", @"action": @"openPatches"},
+                @{@"title": @"关键词词库",   @"icon": @"text.badge.star", @"action": @"openKeywords"},
                 @{@"title": @"网络规则",     @"icon": @"network", @"action": @"openNetworkRules"},
                 @{@"title": @"全局扫描",     @"icon": @"magnifyingglass.circle.fill", @"action": @"openGlobalScan"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
@@ -954,6 +1001,9 @@
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openNetworkRules"]) {
         DHNetworkRuleListVC *vc = [DHNetworkRuleListVC new];
+        [self.navigationController pushViewController:vc animated:YES];
+    } else if ([action isEqualToString:@"openKeywords"]) {
+        DHKeywordFolderVC *vc = [DHKeywordFolderVC new];
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openGlobalScan"]) {
         [self runFullScan];

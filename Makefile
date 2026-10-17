@@ -21,7 +21,8 @@ iOSDebugHelper_FILES = Tweak.x \
     Scanner/DHScannerResult.m \
     AI/DHAIManager.m \
     UI/DHButtonManager.m \
-    UI/DHMainMenuViewController.m
+    UI/DHMainMenuViewController.m \
+    UI/DHKeywordVC.m
 
 iOSDebugHelper_CFLAGS = -fobjc-arc -fmodules -Wno-everything -I. -ILogger -INetwork -IHook -ICrypto -IScanner -IAI -IUI
 iOSDebugHelper_CXXFLAGS = -std=c++14
