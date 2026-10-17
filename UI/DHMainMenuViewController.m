@@ -230,18 +230,18 @@
 
     // 一行布局：左边搜索框，右边筛选按钮
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 56)];
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
     header.backgroundColor = [UIColor whiteColor];
 
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 8, w - 80, 40)];
-    self.searchBar.placeholder = @"搜索...";
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(4, 6, w - 90, 40)];
+    self.searchBar.placeholder = @"搜索类名/方法名";
     self.searchBar.delegate = self;
-    self.searchBar.searchBarStyle = UISearchBarStyleProminent;
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
     [header addSubview:self.searchBar];
 
     UIButton *filterBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    filterBtn.frame = CGRectMake(w - 76, 12, 72, 32);
-    filterBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+    filterBtn.frame = CGRectMake(w - 80, 10, 76, 32);
+    filterBtn.titleLabel.font = [UIFont systemFontOfSize:13];
     [filterBtn setTitle:@"全部 ▾" forState:UIControlStateNormal];
     filterBtn.tag = 200;
     [filterBtn addTarget:self action:@selector(filterBtnTapped:) forControlEvents:UIControlEventTouchUpInside];

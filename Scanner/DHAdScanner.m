@@ -26,8 +26,8 @@
                         @"showAd", @"loadAd", @"closeAd", @"skipAd"];
         _vipKeywords = @[@"Vip", @"VIP", @"Premium", @"Member", @"Membership",
                          @"Purchase", @"Pay", @"Subscribe", @"Subscription", @"Trial",
-                         @"Unlock", @"Pro", @"Premium", @"IsVip", @"isVip",
-                         @"hasPermission", @"unlock", @"restriction", @"limit",
+                         @"Unlock", @"IsVip", @"isVip",
+                         @"hasPermission", @"unlock", @"restriction",
                          @"Receipt", @"IAP", @"StoreKit", @"productId"];
         _customKeywords = @[];
     }
@@ -49,6 +49,19 @@
             @autoreleasepool {
                 Class cls = classes[i];
                 NSString *className = NSStringFromClass(cls);
+
+                // 过滤掉系统框架类，只保留App自己的类
+                if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] ||
+                    [className hasPrefix:@"CA"] || [className hasPrefix:@"CF"] ||
+                    [className hasPrefix:@"_NS"] || [className hasPrefix:@"__NS"] ||
+                    [className hasPrefix:@"WK"] || [className hasPrefix:@"AV"] ||
+                    [className hasPrefix:@"CK"] || [className hasPrefix:@"OS"] ||
+                    [className hasPrefix:@"DF"] || [className hasPrefix:@"LS"] ||
+                    [className hasPrefix:@"SL"] || [className hasPrefix:@"TL"] ||
+                    [className hasPrefix:@"TU"] || [className hasPrefix:@"MT"] ||
+                    [className containsString:@"Proxy"] || [className containsString:@"Weak"]) {
+                    continue;
+                }
 
                 // 检查类名是否匹配关键词
                 for (NSString *kw in allKeywords) {
@@ -75,6 +88,22 @@
                 for (unsigned int j = 0; j < methodCount; j++) {
                     SEL sel = method_getName(methods[j]);
                     NSString *selName = NSStringFromSelector(sel);
+                    // 过滤掉NSObject boilerplate方法
+                    if ([selName isEqualToString:@"isProxy"] ||
+                        [selName isEqualToString:@"isMemberOfClass:"] ||
+                        [selName isEqualToString:@"isKindOfClass:"] ||
+                        [selName isEqualToString:@"conformsToProtocol:"] ||
+                        [selName isEqualToString:@"respondsToSelector:"] ||
+                        [selName isEqualToString:@"class"] ||
+                        [selName isEqualToString:@"superclass"] ||
+                        [selName isEqualToString:@"retain"] ||
+                        [selName isEqualToString:@"release"] ||
+                        [selName isEqualToString:@"autorelease"] ||
+                        [selName isEqualToString:@"retainCount"] ||
+                        [selName isEqualToString:@"description"] ||
+                        [selName isEqualToString:@"debugDescription"]) {
+                        continue;
+                    }
                     for (NSString *kw in allKeywords) {
                         if ([selName localizedCaseInsensitiveContainsString:kw]) {
                             DHScannerResult *r = [DHScannerResult new];
