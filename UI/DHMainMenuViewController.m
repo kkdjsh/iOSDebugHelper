@@ -574,6 +574,7 @@
     BOOL _filterSystemClasses; // 默认YES
     BOOL _filterBOOLOnly;
     BOOL _filterHasArgs;
+    BOOL _regexMode;
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
 }
@@ -823,6 +824,10 @@
     NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
     if (folders.count == 0) { [self showToast:@"请先在主界面创建词库"]; return; }
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择词库" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    // 正则开关
+    [sheet addAction:[UIAlertAction actionWithTitle:_regexMode ? @"✓ 开启正则模糊匹配" : @"  开启正则模糊匹配" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self->_regexMode = !self->_regexMode;
+    }]];
     for (NSDictionary *f in folders) {
         [sheet addAction:[UIAlertAction actionWithTitle:f[@"name"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             [self applyKeywordFolder:f];
@@ -832,31 +837,76 @@
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+- (BOOL)passFunnelFilter:(DHScannerResult *)r {
+    if (_filterSystemClasses) {
+        NSString *cn = r.className;
+        if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+            [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) return NO;
+    }
+    if (_filterBOOLOnly) {
+        NSString *rt = r.returnType.lowercaseString;
+        if (![rt isEqualToString:@"bool"]) return NO;
+    }
+    if (_filterHasArgs) {
+        if (![r.methodName containsString:@":"]) return NO;
+    }
+    return YES;
+}
+
 - (void)applyKeywordFolder:(NSDictionary *)folder {
+    // 新格式：folder直接有content字段
+    NSString *content = folder[@"content"] ?: @"";
+    NSArray *parts = [content componentsSeparatedByCharactersInSet:
+        [NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
     NSMutableSet *kws = [NSMutableSet new];
-    for (NSDictionary *file in folder[@"files"]) {
-        NSString *content = file[@"content"];
-        NSArray *parts = [content componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@",， \n"]];
-        for (NSString *p in parts) {
-            NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            if (t.length) [kws addObject:t.lowercaseString];
-        }
+    for (NSString *p in parts) {
+        NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (t.length) [kws addObject:t.lowercaseString];
     }
     if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
 
+    BOOL useRegex = _regexMode;
+    NSInteger scope = _searchScope;
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *result = [NSMutableArray new];
+        NSError *err = nil;
+        NSRegularExpression *regex = nil;
+        if (useRegex) {
+            NSString *pattern = [NSString stringWithFormat:@".*(%@).*", [[kws allObjects] componentsJoinedByString:@"|"]];
+            regex = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:&err];
+        }
         for (DHScannerResult *r in self.allResults) {
-            NSString *cn = r.className.lowercaseString;
-            NSString *mn = r.methodName.lowercaseString;
-            for (NSString *kw in kws) {
-                if ([cn containsString:kw] || [mn containsString:kw]) { [result addObject:r]; break; }
+            // 词库匹配
+            BOOL hit = NO;
+            if (regex) {
+                NSString *cn = r.className;
+                NSString *mn = r.methodName;
+                if (scope == 1) {
+                    hit = [regex firstMatchInString:cn options:0 range:NSMakeRange(0, cn.length)] != nil;
+                } else if (scope == 2) {
+                    hit = [regex firstMatchInString:mn options:0 range:NSMakeRange(0, mn.length)] != nil;
+                } else {
+                    hit = [regex firstMatchInString:cn options:0 range:NSMakeRange(0, cn.length)] != nil ||
+                          [regex firstMatchInString:mn options:0 range:NSMakeRange(0, mn.length)] != nil;
+                }
+            } else {
+                NSString *cn = r.className.lowercaseString;
+                NSString *mn = r.methodName.lowercaseString;
+                for (NSString *kw in kws) {
+                    if (scope == 1) { if ([cn containsString:kw]) { hit = YES; break; } }
+                    else if (scope == 2) { if ([mn containsString:kw]) { hit = YES; break; } }
+                    else { if ([cn containsString:kw] || [mn containsString:kw]) { hit = YES; break; } }
+                }
             }
+            if (!hit) continue;
+            // 漏斗二次过滤
+            if ([self passFunnelFilter:r]) [result addObject:r];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             self.filteredResults = result;
             [self.tableView reloadData];
-            [self showToast:[NSString stringWithFormat:@"匹配到 %lu 条", (unsigned long)result.count]];
+            [self showToast:[NSString stringWithFormat:@"%@ 匹配到 %lu 条", folder[@"name"], (unsigned long)result.count]];
         });
     });
 }
