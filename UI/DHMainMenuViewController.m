@@ -583,8 +583,7 @@
     _filterSystemClasses = YES;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
-
-    // 一行布局：左边搜索框，右边筛选按钮
+    self.tableView.rowHeight = 44;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
     header.backgroundColor = [UIColor whiteColor];
@@ -630,11 +629,26 @@
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.filteredResults.count; }
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
+    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell"];
+    if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
     DHScannerResult *r = self.filteredResults[ip.row];
-    c.textLabel.text = [NSString stringWithFormat:@"-%@\nIn Class: %@", r.methodName, r.className];
-    c.textLabel.font = [UIFont systemFontOfSize:11];
-    c.textLabel.numberOfLines = 2;
+    NSString *retType = r.returnType ?: @"id";
+    if ([r.methodName isEqualToString:@"(class)"]) {
+        c.textLabel.text = [NSString stringWithFormat:@"+ (Class)%@", r.className];
+    } else {
+        c.textLabel.text = [NSString stringWithFormat:@"- (%@)%@", retType, r.methodName];
+    }
+    c.textLabel.font = [UIFont systemFontOfSize:12];
+    c.textLabel.numberOfLines = 1;
+    c.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSString *img = r.imageName ?: @"";
+    if (img.length) {
+        c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@ [%@]", r.className, img];
+    } else {
+        c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@", r.className];
+    }
+    c.detailTextLabel.font = [UIFont systemFontOfSize:10];
+    c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return c;
 }

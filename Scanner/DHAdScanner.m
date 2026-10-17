@@ -9,6 +9,30 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+static NSString *DHReturnTypeEncoding(Method m) {
+    const char *ret = method_copyReturnType(m);
+    if (!ret) return @"id";
+    NSString *s = [NSString stringWithUTF8String:ret];
+    free((void *)ret);
+    if ([s isEqualToString:@"v"]) return @"void";
+    if ([s isEqualToString:@"B"] || [s isEqualToString:@"c"]) return @"BOOL";
+    if ([s isEqualToString:@"C"]) return @"unsigned char";
+    if ([s isEqualToString:@"i"] || [s isEqualToString:@"s"] || [s isEqualToString:@"l"] || [s isEqualToString:@"q"]) return @"NSInteger";
+    if ([s isEqualToString:@"I"] || [s isEqualToString:@"L"] || [s isEqualToString:@"Q"]) return @"NSUInteger";
+    if ([s isEqualToString:@"f"]) return @"float";
+    if ([s isEqualToString:@"d"]) return @"double";
+    if ([s isEqualToString:@"@"]) return @"id";
+    if ([s isEqualToString:@"#"]) return @"Class";
+    if ([s isEqualToString:@":"]) return @"SEL";
+    return @"id";
+}
+
+static NSString *DHImageNameForClass(Class cls) {
+    const char *name = class_getImageName(cls);
+    if (!name) return @"";
+    return [[NSString stringWithUTF8String:name] lastPathComponent];
+}
+
 @implementation DHAdScanner
 
 + (instancetype)sharedScanner {
@@ -174,6 +198,9 @@
                     r.className = className;
                     r.category = DHScannerCategorySuspicious;
                     r.matchedKeyword = @"";
+                    r.returnType = DHReturnTypeEncoding(methods[j]);
+                    r.imageName = DHImageNameForClass(cls);
+                    r.isClassMethod = NO;
                     [results addObject:r];
                 }
                 free(methods);

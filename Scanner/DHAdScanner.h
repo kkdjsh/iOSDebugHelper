@@ -19,6 +19,9 @@ typedef NS_ENUM(NSInteger, DHScannerCategory) {
 @property (nonatomic, copy)   NSString *className;
 @property (nonatomic, assign) DHScannerCategory category;
 @property (nonatomic, copy)   NSString *matchedKeyword;
+@property (nonatomic, copy)   NSString *returnType;      // 如 BOOL, void, id
+@property (nonatomic, copy)   NSString *imageName;      // 所属动态库
+@property (nonatomic, assign) BOOL isClassMethod;
 @end
 
 @interface DHAdScanner : NSObject

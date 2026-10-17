@@ -98,11 +98,19 @@ static NSMutableDictionary *sOriginalIMPs;
         newImp = imp_implementationWithBlock(^double(id self, SEL _cmd) { return ret; });
     } else if ([typeStr hasPrefix:@"@"]) {
         // 对象类型 (id, NSObject*, NSString*, etc.)
-        id ret = nil;
+        __block id ret = nil;
         if (hook.returnType == DHHookReturnTrue) ret = (__bridge id)kCFBooleanTrue;
+        else if (hook.returnType == DHHookReturnFalse) ret = nil;
+        else if (hook.returnType == DHHookReturnNil) ret = nil;
+        else if (hook.returnType == DHHookReturnZero) ret = nil;
         else if (hook.returnType == DHHookReturnCustomString) ret = hook.customValue ?: @"";
         else if (hook.returnType == DHHookReturnCustomNumber) ret = hook.customValue;
         newImp = imp_implementationWithBlock(^id(id self, SEL _cmd) { return ret; });
+    } else if ([typeStr isEqualToString:@"#"]) {
+        // Class 返回
+        Class ret = Nil;
+        if (hook.returnType == DHHookReturnTrue) ret = [NSObject class];
+        newImp = imp_implementationWithBlock(^Class(id self, SEL _cmd) { return ret; });
     } else {
         // 未知类型，默认返回nil/0
         newImp = imp_implementationWithBlock(^id(id self, SEL _cmd) { return nil; });
