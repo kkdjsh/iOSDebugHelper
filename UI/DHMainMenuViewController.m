@@ -216,7 +216,9 @@
 @property (nonatomic, copy) NSArray *filteredResults;      // 当前显示的扁平结果
 @property (nonatomic, strong) UISearchController *searchCtrl;
 @end
-@implementation DHScanResultVC
+@implementation DHScanResultVC {
+    NSTimer *_searchDebounce;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -225,12 +227,13 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重新扫描" style:UIBarButtonItemStylePlain target:self action:@selector(rescan)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 
-    // 搜索框
+    // 搜索框常显，不随滚动隐藏
     self.searchCtrl = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchCtrl.searchResultsUpdater = self;
     self.searchCtrl.obscuresBackgroundDuringPresentation = NO;
     self.searchCtrl.searchBar.placeholder = @"搜索类名或方法名...";
     self.navigationItem.searchController = self.searchCtrl;
+    self.navigationItem.hidesSearchBarWhenScrolling = NO;
 
     self.filteredResults = self.allResults;
 }
@@ -368,14 +371,18 @@
 }
 
 - (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+    // 防抖：停止输入200ms后才过滤，避免每个字母都全量过滤导致卡顿
+    [_searchDebounce invalidate];
     NSString *kw = searchController.searchBar.text.lowercaseString;
-    if (!kw.length) {
-        self.filteredResults = self.allResults;
-    } else {
-        NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
-        self.filteredResults = [self.allResults filteredArrayUsingPredicate:pred];
-    }
-    [self.tableView reloadData];
+    _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.2 repeats:NO block:^(NSTimer *t) {
+        if (!kw.length) {
+            self.filteredResults = self.allResults;
+        } else {
+            NSPredicate *pred = [NSPredicate predicateWithFormat:@"methodName CONTAINS[cd] %@ OR className CONTAINS[cd] %@", kw, kw];
+            self.filteredResults = [self.allResults filteredArrayUsingPredicate:pred];
+        }
+        [self.tableView reloadData];
+    }];
 }
 
 - (void)showToast:(NSString *)msg {
