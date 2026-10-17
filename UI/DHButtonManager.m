@@ -1,6 +1,7 @@
 //
 //  DHButtonManager.m
 //  iOSDebugHelper
+//  悬浮球使用独立UIWindow，windowLevel最高，不会被App隐藏
 //
 
 #import "DHButtonManager.h"
@@ -33,14 +34,22 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 }
 
 - (void)showFloatingButton {
-    UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-    if (!keyWindow) return;
+    // 使用独立window，windowLevel最高，不会被App的window盖住
+    UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    window.windowLevel = UIWindowLevelAlert + 100;
+    window.backgroundColor = [UIColor clearColor];
+    window.hidden = NO;
+    window.rootViewController = [UIViewController new];
+    window.rootViewController.view.backgroundColor = [UIColor clearColor];
+
+    self.floatingWindow = window;
 
     self.floatingButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.floatingButton.frame = CGRectMake(self.buttonPosition.x, self.buttonPosition.y, self.buttonSize, self.buttonSize);
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:self.buttonAlpha];
     self.floatingButton.layer.cornerRadius = self.buttonSize / 2;
     self.floatingButton.alpha = self.buttonAlpha;
+    self.floatingButton.layer.zPosition = 1000;
     [self.floatingButton setTitle:@"🔧" forState:UIControlStateNormal];
     self.floatingButton.titleLabel.font = [UIFont systemFontOfSize:self.buttonSize * 0.4];
 
@@ -51,8 +60,8 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
     // 点击
     [self.floatingButton addTarget:self action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
 
-    [keyWindow addSubview:self.floatingButton];
-    DHLogInfo(@"悬浮球已显示");
+    [window.rootViewController.view addSubview:self.floatingButton];
+    DHLogInfo(@"悬浮球已显示(独立Window)");
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -69,7 +78,13 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 
 - (void)buttonTapped {
     DHLogInfo(@"打开主菜单");
-    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    UIViewController *topVC = nil;
+    for (UIWindow *w in [UIApplication sharedApplication].windows) {
+        if (!w.isKeyWindow && w != self.floatingWindow) continue;
+        topVC = w.rootViewController;
+        break;
+    }
+    if (!topVC) topVC = [UIApplication sharedApplication].delegate.window.rootViewController;
     while (topVC.presentedViewController) topVC = topVC.presentedViewController;
 
     DHMainMenuViewController *menu = [[DHMainMenuViewController alloc] init];
@@ -80,6 +95,8 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 - (void)hideFloatingButton {
     [self.floatingButton removeFromSuperview];
     self.floatingButton = nil;
+    self.floatingWindow.hidden = YES;
+    self.floatingWindow = nil;
 }
 
 - (void)resetPosition {

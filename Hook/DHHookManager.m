@@ -1,14 +1,22 @@
 //
 //  DHHookManager.m
 //  iOSDebugHelper
+//  真正实现 method swizzling，替换方法返回值
 //
 
 #import "DHHookManager.h"
 #import "DHLogManager.h"
-#import <substrate.h>
 #import <objc/runtime.h>
 
+// 保存原始IMP，用于取消Hook时恢复
+static NSMutableDictionary *sOriginalIMPs;
+
 @implementation DHHookManager
+
++ (void)initialize {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ sOriginalIMPs = [NSMutableDictionary new]; });
+}
 
 + (instancetype)sharedManager {
     static DHHookManager *m;
@@ -49,7 +57,7 @@
     [self loadHooks];
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
     for (DHHookInfo *hook in self.savedHooks) {
-        [self applyHook:hook];
+        if (hook.enabled) [self applyHook:hook];
     }
     DHLogInfo(@"HookManager: 完成应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
 }
@@ -65,18 +73,70 @@
     SEL sel = NSSelectorFromString(hook.selectorName);
     Method m = class_getInstanceMethod(cls, sel);
     if (!m) {
-        DHLogWarn(@"Hook失败: 方法 +[%@ %@] 不存在", hook.className, hook.selectorName);
+        DHLogWarn(@"Hook失败: 方法 %@ %@ 不存在", hook.className, hook.selectorName);
         return;
     }
 
-    // 通过 method swizzling 替换返回值
+    NSString *key = [NSString stringWithFormat:@"%@-%@", hook.className, hook.selectorName];
     IMP originalImp = method_getImplementation(m);
-    // 注意：实际 Hook 中使用 MSHookMessageEx 或 method_setImplementation
-    // 这里记录 Hook 已注册，运行时由 FLEX 运行时框架执行替换
-    DHLogInfo(@"已注册 Hook: %@ %@ → 返回类型 %ld", hook.className, hook.selectorName, (long)hook.returnType);
+    if (!sOriginalIMPs[key]) {
+        sOriginalIMPs[key] = [NSValue valueWithPointer:originalImp];
+    }
+
+    // 根据返回类型构造block
+    id block = nil;
+    switch (hook.returnType) {
+        case DHHookReturnTrue:
+            block = ^id(id self, SEL _cmd) { return (__bridge id)kCFBooleanTrue; };
+            break;
+        case DHHookReturnFalse:
+            block = ^id(id self, SEL _cmd) { return nil; };  // NO = nil for objects
+            break;
+        case DHHookReturnNil:
+            block = ^id(id self, SEL _cmd) { return nil; };
+            break;
+        case DHHookReturnZero:
+            block = ^id(id self, SEL _cmd) { return nil; };
+            break;
+        case DHHookReturnCustomString:
+            block = ^id(id self, SEL _cmd) { return hook.customValue ?: @""; };
+            break;
+        case DHHookReturnCustomNumber: {
+            NSNumber *num = [hook.customValue isKindOfClass:[NSNumber class]] ? hook.customValue : @([hook.customValue doubleValue]);
+            block = ^id(id self, SEL _cmd) { return num; };
+            break;
+        }
+        default:
+            block = ^id(id self, SEL _cmd) {
+                IMP orig = [sOriginalIMPs[key] pointerValue];
+                return ((id(*)(id, SEL))orig)(self, _cmd);
+            };
+            break;
+    }
+
+    IMP newImp = imp_implementationWithBlock(block);
+    method_setImplementation(m, newImp);
+    DHLogInfo(@"Hook成功: %@ %@ → 返回类型 %ld", hook.className, hook.selectorName, (long)hook.returnType);
+}
+
+- (void)disableHook:(DHHookInfo *)hook {
+    NSString *key = [NSString stringWithFormat:@"%@-%@", hook.className, hook.selectorName];
+    NSValue *origVal = sOriginalIMPs[key];
+    if (!origVal) return;
+
+    Class cls = NSClassFromString(hook.className);
+    if (!cls) return;
+    if (hook.isClassMethod) cls = object_getClass(cls);
+    SEL sel = NSSelectorFromString(hook.selectorName);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (m) {
+        method_setImplementation(m, [origVal pointerValue]);
+        DHLogInfo(@"Hook已禁用: %@ %@", hook.className, hook.selectorName);
+    }
 }
 
 - (void)addHook:(DHHookInfo *)hook {
+    hook.enabled = YES;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr addObject:hook];
     self.savedHooks = arr;
@@ -85,13 +145,25 @@
 }
 
 - (void)removeHook:(DHHookInfo *)hook {
+    [self disableHook:hook];
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr removeObject:hook];
     self.savedHooks = arr;
     [self saveHooks];
 }
 
+- (void)toggleHook:(DHHookInfo *)hook {
+    hook.enabled = !hook.enabled;
+    if (hook.enabled) {
+        [self applyHook:hook];
+    } else {
+        [self disableHook:hook];
+    }
+    [self saveHooks];
+}
+
 - (void)clearAllHooks {
+    for (DHHookInfo *h in self.savedHooks) [self disableHook:h];
     self.savedHooks = @[];
     self.savedPatches = @[];
     [self saveHooks];

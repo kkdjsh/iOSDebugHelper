@@ -48,7 +48,6 @@
     [super viewDidLoad];
     self.title = @"补丁管理";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addHook)];
-    self.navigationItem.leftBarButtonItem = self.navigationController.viewControllers.count > 1 ? self.navigationItem.leftBarButtonItem : nil;
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
@@ -56,10 +55,31 @@
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
     DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
-    c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@]", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName];
-    c.textLabel.font = [UIFont systemFontOfSize:12];
-    c.accessoryType = UITableViewCellAccessoryDetailButton;
+    NSString *retStr;
+    switch (h.returnType) {
+        case DHHookReturnTrue: retStr = @"返回TRUE"; break;
+        case DHHookReturnFalse: retStr = @"返回FALSE"; break;
+        case DHHookReturnNil: retStr = @"返回nil"; break;
+        case DHHookReturnZero: retStr = @"返回0"; break;
+        case DHHookReturnCustomString: retStr = [NSString stringWithFormat:@"返回\"%@\"", h.customValue ?: @""]; break;
+        case DHHookReturnCustomNumber: retStr = [NSString stringWithFormat:@"返回%@", h.customValue ?: @0]; break;
+        default: retStr = @""; break;
+    }
+    c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@]\n→ %@", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName, retStr];
+    c.textLabel.font = [UIFont systemFontOfSize:11];
+    c.textLabel.numberOfLines = 2;
+    // 开关
+    UISwitch *sw = [[UISwitch alloc] init];
+    sw.on = h.enabled;
+    sw.tag = ip.row;
+    [sw addTarget:self action:@selector(switchToggled:) forControlEvents:UIControlEventValueChanged];
+    c.accessoryView = sw;
     return c;
+}
+- (void)switchToggled:(UISwitch *)sw {
+    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[sw.tag];
+    [[DHHookManager sharedManager] toggleHook:h];
+    [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)t commitEditingStyle:(UITableViewCellEditingStyle)e forRowAtIndexPath:(NSIndexPath *)ip {
     if (e == UITableViewCellEditingStyleDelete) {
@@ -67,6 +87,34 @@
         [[DHHookManager sharedManager] removeHook:h];
         [t deleteRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationAutomatic];
     }
+}
+- (NSArray *)tableView:(UITableView *)t editActionsForRowAtIndexPath:(NSIndexPath *)ip {
+    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
+    UITableViewRowAction *edit = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"编辑" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+        [self editHook:h];
+    }];
+    UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+        [[DHHookManager sharedManager] removeHook:h];
+        [t deleteRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationAutomatic];
+    }];
+    return @[del, edit];
+}
+- (void)editHook:(DHHookInfo *)h {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"返回0",@"自定义字符串",@"自定义数字"]) {
+        [a addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+            if ([title isEqualToString:@"返回TRUE"]) h.returnType = DHHookReturnTrue;
+            else if ([title isEqualToString:@"返回FALSE"]) h.returnType = DHHookReturnFalse;
+            else if ([title isEqualToString:@"返回nil"]) h.returnType = DHHookReturnNil;
+            else if ([title isEqualToString:@"返回0"]) h.returnType = DHHookReturnZero;
+            else if ([title isEqualToString:@"自定义字符串"]) h.returnType = DHHookReturnCustomString;
+            else h.returnType = DHHookReturnCustomNumber;
+            [[DHHookManager sharedManager] saveHooks];
+            [self.tableView reloadData];
+        }]];
+    }
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 - (void)addHook {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"添加Hook" message:@"输入 类名/方法名" preferredStyle:UIAlertControllerStyleAlert];
@@ -93,7 +141,6 @@
     [self presentViewController:a animated:YES completion:nil];
 }
 - (void)tableView:(UITableView *)t accessoryButtonTappedForRowWithIndexPath:(NSIndexPath *)ip {
-    DHHookInfo *h = [DHHookManager sharedManager].savedHooks[ip.row];
     NSString *code = [[DHHookManager sharedManager] exportLogosCode];
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"导出Logos代码" message:code preferredStyle:UIAlertControllerStyleActionSheet];
     [a addAction:[UIAlertAction actionWithTitle:@"复制代码" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {

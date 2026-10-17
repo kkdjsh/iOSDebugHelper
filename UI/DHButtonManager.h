@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface DHButtonManager : NSObject
 
 @property (nonatomic, strong) UIButton *floatingButton;
+@property (nonatomic, strong) UIWindow *floatingWindow;
 @property (nonatomic, assign) CGFloat buttonSize;      // 默认 60
 @property (nonatomic, assign) CGFloat buttonAlpha;     // 默认 0.7
 @property (nonatomic, assign) CGPoint buttonPosition;
