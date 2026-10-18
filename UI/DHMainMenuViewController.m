@@ -630,6 +630,7 @@
     BOOL _filterSystemClasses; // 默认YES
     BOOL _filterBOOLOnly;
     BOOL _filterHasArgs;
+    NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
 }
@@ -949,31 +950,9 @@
         if (t.length) [kws addObject:t];
     }
     if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
-
-    NSInteger scope = _searchScope;
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSMutableArray *result = [NSMutableArray new];
-        for (DHScannerResult *r in self.allResults) {
-            BOOL hit = NO;
-            for (NSString *kw in kws) {
-                if (scope == 1) {
-                    if ([r.className rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
-                } else if (scope == 2) {
-                    if ([r.methodName rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
-                } else {
-                    if ([r.className rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                        [r.methodName rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
-                }
-            }
-            if (!hit) continue;
-            if ([self passFunnelFilter:r]) [result addObject:r];
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.filteredResults = result;
-            [self.tableView reloadData];
-            [self showToast:[NSString stringWithFormat:@"%@ 匹配到 %lu 条", folder[@"name"], (unsigned long)result.count]];
-        });
-    });
+    _activeKeywords = [kws copy];
+    [self applyFilter];
+    [self showToast:[NSString stringWithFormat:@"已应用词库: %@", folder[@"name"]]];
 }
 
 - (void)applyFilter {
@@ -988,10 +967,20 @@
     BOOL fBool = _filterBOOLOnly;
     BOOL fArgs = _filterHasArgs;
     NSArray *all = self.allResults;
+    NSSet *activeKws = _activeKeywords;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
+                // 闪电词库过滤（叠加）
+                if (activeKws.count) {
+                    BOOL hit = NO;
+                    for (NSString *akw in activeKws) {
+                        if ([r.className rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                            [r.methodName rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
+                    }
+                    if (!hit) continue;
+                }
                 // 关键词过滤
                 if (kw.length) {
                     if (scope == 1) {
@@ -1182,19 +1171,21 @@
     tv.text = logs ?: @"暂无日志";
     tv.editable = NO;
     tv.font = [UIFont fontWithName:@"Menlo" size:10];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:({
-        UIViewController *vc = [UIViewController new];
-        vc.view = tv;
-        vc.title = @"日志查看";
-        vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStyleDone target:self action:@selector(clearLogs)];
-        vc;
-    })];
+    UIViewController *vc = [UIViewController new];
+    vc.view = tv;
+    vc.title = @"日志查看";
+    UIAlertAction *(^clearAction)(void) = ^UIAlertAction *{
+        return [UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDone handler:^(UIAlertAction *a) {
+            [[DHLogManager sharedManager] clearTodayLog];
+            tv.text = @"";
+        }];
+    };
+    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStyleDone handler:^(UIBarButtonItem *btn) {
+        [[DHLogManager sharedManager] clearTodayLog];
+        tv.text = @"";
+    }];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [self presentViewController:nav animated:YES completion:nil];
-}
-
-- (void)clearLogs {
-    [[DHLogManager sharedManager] clearTodayLog];
-}
 
 - (void)resetAllConfig {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置配置" message:@"将清除所有规则、Hook、补丁和设置，确定继续？" preferredStyle:UIAlertControllerStyleAlert];
