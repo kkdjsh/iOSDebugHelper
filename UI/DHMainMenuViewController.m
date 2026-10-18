@@ -230,6 +230,11 @@
                 NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
                 [folders removeObject:fname];
                 [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+                // 清除文件夹开关状态
+                NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
+                [folderStates removeObjectForKey:fname];
+                [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
+                [[NSUserDefaults standardUserDefaults] synchronize];
                 [self.tableView reloadData];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
@@ -598,7 +603,6 @@
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
     }];
 }
-@end
 @interface DHNetworkRuleListVC : UITableViewController
 @end
 @implementation DHNetworkRuleListVC
