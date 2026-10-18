@@ -13,6 +13,7 @@
 #import "DHInterceptRule.h"
 #import "DHCryptManager.h"
 #import "DHKeywordVC.h"
+#import <objc/runtime.h>
 
 #pragma mark - 通用列表控制器
 @interface DHSimpleListVC : UITableViewController
@@ -339,7 +340,6 @@
 
         // 构造完整方法签名
         NSString *signature;
-        NSUInteger argc = h.argCount;
         if (argc == 0) {
             signature = [NSString stringWithFormat:@"%@ (%@)%@ {", prefix, rt, sel];
         } else {
