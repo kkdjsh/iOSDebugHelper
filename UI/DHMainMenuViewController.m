@@ -1151,6 +1151,15 @@
     [arr addObjectsFromArray:newHooks];
     [DHHookManager sharedManager].savedHooks = arr;
     [[DHHookManager sharedManager] saveHooks];
+    // 保存文件夹开关状态为ON
+    if (folderName.length > 0) {
+        NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
+        folderStates[folderName] = @(YES);
+        [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    // 立即应用新hook
+    for (DHHookInfo *h in newHooks) [[DHHookManager sharedManager] applyHook:h];
     [self showToast:[NSString stringWithFormat:@"批量处理%lu个补丁", (long)added]];
     [self.tableView reloadData];
 }
