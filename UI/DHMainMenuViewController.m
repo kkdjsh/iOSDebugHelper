@@ -118,7 +118,8 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:ip];
+    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell"];
+    if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
 
     if (!self.currentFolder && ip.section == 0) {
         // 文件夹行
@@ -155,10 +156,32 @@
         case DHHookReturnCustomNumber: retStr = [NSString stringWithFormat:@"→%@", h.customValue ?: @0]; break;
         default: retStr = @""; break;
     }
-    c.textLabel.text = [NSString stringWithFormat:@"%@[%@ %@] %@", h.isClassMethod ? @"+" : @"-", h.className, h.selectorName, retStr];
-    c.textLabel.font = [UIFont systemFontOfSize:11];
+    // 构建完整签名
+    NSString *prefix = h.isClassMethod ? @"+" : @"-";
+    NSString *retType = h.realReturnType ?: @"id";
+    NSString *sel = h.selectorName ?: @"";
+    NSString *sig;
+    if ([sel containsString:@":"]) {
+        NSArray *parts = [sel componentsSeparatedByString:@":"];
+        NSMutableString *ms = [NSMutableString stringWithFormat:@"%@ (%@)", prefix, retType];
+        NSUInteger idx = 1;
+        for (NSString *p in parts) {
+            if (p.length == 0) continue;
+            if (idx == 1) [ms appendFormat:@"%@:(id)arg%lu", p, (unsigned long)idx];
+            else [ms appendFormat:@" %@:(id)arg%lu", p, (unsigned long)idx];
+            idx++;
+        }
+        sig = ms;
+    } else {
+        sig = [NSString stringWithFormat:@"%@ (%@)%@", prefix, retType, sel];
+    }
+    c.textLabel.text = [NSString stringWithFormat:@"%@ %@", sig, retStr];
+    c.textLabel.font = [UIFont systemFontOfSize:12];
     c.textLabel.numberOfLines = 1;
     c.textLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@", h.className];
+    c.detailTextLabel.font = [UIFont systemFontOfSize:10];
+    c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryNone;
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = h.enabled;
@@ -273,11 +296,12 @@
 }
 
 - (void)editHook:(DHHookInfo *)h {    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"返回0",@"自定义字符串",@"自定义数字"]) {
+    for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"拦截/空实现(void)",@"返回0",@"自定义字符串",@"自定义数字"]) {
         [a addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
             if ([title isEqualToString:@"返回TRUE"]) h.returnType = DHHookReturnTrue;
             else if ([title isEqualToString:@"返回FALSE"]) h.returnType = DHHookReturnFalse;
             else if ([title isEqualToString:@"返回nil"]) h.returnType = DHHookReturnNil;
+            else if ([title isEqualToString:@"拦截/空实现(void)"]) h.returnType = DHHookReturnVoid;
             else if ([title isEqualToString:@"返回0"]) h.returnType = DHHookReturnZero;
             else if ([title isEqualToString:@"自定义字符串"]) h.returnType = DHHookReturnCustomString;
             else h.returnType = DHHookReturnCustomNumber;
@@ -784,9 +808,6 @@
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"返回自定义字符串..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self promptCustomValue:r isNumber:NO];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"返回空/拦截 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        [self addHook:r returnType:DHHookReturnVoid custom:nil];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
