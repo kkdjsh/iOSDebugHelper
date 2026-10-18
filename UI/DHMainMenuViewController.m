@@ -61,8 +61,24 @@
     return arr;
 }
 
++ (NSString *)dhDataDir {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *d = [dir stringByAppendingPathComponent:@"iOSDebugHelper"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil];
+    return d;
+}
+
++ (NSArray *)dhLoadFolders {
+    NSString *path = [[self dhDataDir] stringByAppendingPathComponent:@"folders.plist"];
+    return [NSArray arrayWithContentsOfFile:path] ?: @[];
+}
+
++ (void)dhSaveFolders:(NSArray *)folders {
+    [folders writeToFile:[[self dhDataDir] stringByAppendingPathComponent:@"folders.plist"] atomically:YES];
+}
+
 - (NSArray *)folderNames {
-    NSMutableSet *set = [NSMutableSet setWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+    NSMutableSet *set = [NSMutableSet setWithArray:[DHPatchListVC dhLoadFolders]];
     for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
         if (h.folderName.length) [set addObject:h.folderName];
     }
@@ -169,7 +185,7 @@
 
 - (void)folderSwitchToggled:(UISwitch *)sw {
     NSString *fname = [self folderNames][sw.tag - 9000];
-    for (DHHookInfo *h in [self visibleHooks]) {
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
         if ([h.folderName isEqualToString:fname]) {
             if (sw.on && !h.enabled) [[DHHookManager sharedManager] toggleHook:h];
             else if (!sw.on && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
@@ -189,10 +205,10 @@
             [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
                 NSString *newName = alert.textFields[0].text;
                 if (!newName.length || [newName isEqualToString:fname]) return;
-                NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+                NSMutableArray *folders = [NSMutableArray arrayWithArray:[DHPatchListVC dhLoadFolders]];
                 NSUInteger i = [folders indexOfObject:fname];
                 if (i != NSNotFound) folders[i] = newName;
-                [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+                [DHPatchListVC dhSaveFolders:folders];
                 for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
                     if ([h.folderName isEqualToString:fname]) h.folderName = newName;
                 }
@@ -212,16 +228,10 @@
                 }
                 for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
                 // 从文件夹列表中也删除
-                NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+                NSMutableArray *folders = [NSMutableArray arrayWithArray:[DHPatchListVC dhLoadFolders]];
                 [folders removeObject:fname];
-                [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
-                // 清除文件夹开关状态
-                NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
-                [folderStates removeObjectForKey:fname];
-                [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
-                // 删除操作立即保存到磁盘
+                [DHPatchListVC dhSaveFolders:folders];
                 [[DHHookManager sharedManager] saveHooks];
-                [[NSUserDefaults standardUserDefaults] synchronize];
                 [self.tableView reloadData];
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
@@ -292,10 +302,10 @@
     [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
         NSString *name = [a.textFields[0].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         if (!name.length) return;
-        NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+        NSMutableArray *folders = [NSMutableArray arrayWithArray:[DHPatchListVC dhLoadFolders]];
         if (![folders containsObject:name]) {
             [folders addObject:name];
-            [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+            [DHPatchListVC dhSaveFolders:folders];
         }
         [self.tableView reloadData];
     }]];
@@ -489,14 +499,14 @@
         }
     }
     // 重名加后缀
-    NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+    NSMutableArray *folders = [NSMutableArray arrayWithArray:[DHPatchListVC dhLoadFolders]];
     NSString *finalName = folderName;
     NSInteger suffix = 1;
     while ([folders containsObject:finalName]) {
         finalName = [NSString stringWithFormat:@"%@_%ld", folderName, (long)suffix++];
     }
     [folders addObject:finalName];
-    [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+    [DHPatchListVC dhSaveFolders:folders];
 
     // 解析%hook块
     NSUInteger count = 0;
@@ -823,7 +833,7 @@
 
 - (void)addHook:(DHScannerResult *)r returnType:(DHHookReturnType)type custom:(NSString *)custom {
     // 从NSUserDefaults读取所有文件夹
-    NSMutableSet *folderSet = [NSMutableSet setWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+    NSMutableSet *folderSet = [NSMutableSet setWithArray:[DHPatchListVC dhLoadFolders]];
     for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
         if (h.folderName.length) [folderSet addObject:h.folderName];
     }
@@ -1094,7 +1104,7 @@
     [folderSheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self batchPatchWithType:type folder:nil];
     }]];
-    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[];
+    NSArray *folders = [DHPatchListVC dhLoadFolders];
     for (NSString *f in folders) {
         [folderSheet addAction:[UIAlertAction actionWithTitle:f style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             [self batchPatchWithType:type folder:f];
@@ -1376,6 +1386,10 @@
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHSavedPatches"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPatchFolders"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHKeywordFolders"];
+        [[NSFileManager defaultManager] removeItemAtPath:[[DHPatchListVC dhDataDir] stringByAppendingPathComponent:@"hooks.plist"] error:nil];
+        [[NSFileManager defaultManager] removeItemAtPath:[[DHPatchListVC dhDataDir] stringByAppendingPathComponent:@"patches.plist"] error:nil];
+        [[NSFileManager defaultManager] removeItemAtPath:[[DHPatchListVC dhDataDir] stringByAppendingPathComponent:@"folders.plist"] error:nil];
+        [[DHHookManager sharedManager] clearAllHooks];
         [[NSUserDefaults standardUserDefaults] synchronize];
         DHLogInfo(@"已重置全部配置");
         [self showAlert:@"完成" message:@"所有配置已重置"];

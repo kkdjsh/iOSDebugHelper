@@ -33,31 +33,52 @@ static NSMutableDictionary *sOriginalIMPs;
     return self;
 }
 
+- (NSString *)dataDir {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    return [dir stringByAppendingPathComponent:@"iOSDebugHelper"];
+}
+
+- (void)ensureDataDir {
+    NSString *dir = [self dataDir];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:dir]) {
+        [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+}
+
 - (void)loadHooks {
     if (!_savedHooks) _savedHooks = @[];
     if (!_savedPatches) _savedPatches = @[];
-    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedHooksKey];
-    if (data) {
+    [self ensureDataDir];
+    NSString *hookPath = [[self dataDir] stringByAppendingPathComponent:@"hooks.plist"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:hookPath]) {
         @try {
-            NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
-            if (loaded) self.savedHooks = loaded;
-        } @catch (NSException *e) {}
+            NSData *data = [NSData dataWithContentsOfFile:hookPath];
+            if (data) {
+                NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+                if (loaded) self.savedHooks = loaded;
+            }
+        } @catch (NSException *e) {
+            DHLogWarn(@"loadHooks decode error: %@", e);
+        }
     }
-    NSData *pdata = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedPatchesKey];
-    if (pdata) {
+    NSString *patchPath = [[self dataDir] stringByAppendingPathComponent:@"patches.plist"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:patchPath]) {
         @try {
-            NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:pdata];
-            if (loaded) self.savedPatches = loaded;
+            NSData *data = [NSData dataWithContentsOfFile:patchPath];
+            if (data) {
+                NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+                if (loaded) self.savedPatches = loaded;
+            }
         } @catch (NSException *e) {}
     }
 }
 
 - (void)saveHooks {
+    [self ensureDataDir];
     NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self.savedHooks];
-    [[NSUserDefaults standardUserDefaults] setObject:data forKey:kDHSavedHooksKey];
+    [data writeToFile:[[self dataDir] stringByAppendingPathComponent:@"hooks.plist"] atomically:YES];
     NSData *pdata = [NSKeyedArchiver archivedDataWithRootObject:self.savedPatches];
-    [[NSUserDefaults standardUserDefaults] setObject:pdata forKey:kDHSavedPatchesKey];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    [pdata writeToFile:[[self dataDir] stringByAppendingPathComponent:@"patches.plist"] atomically:YES];
 }
 
 - (void)applyEnabledHooks {
