@@ -16,6 +16,10 @@ static void DHInitializeDebugHelper(void) {
 
         // 1. 加载并应用持久化的 Hook 配置
         [[DHHookManager sharedManager] applyEnabledHooks];
+        // 延迟二次应用，确保App类已加载
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [[DHHookManager sharedManager] applyEnabledHooks];
+        });
 
         // 2. 初始化网络拦截规则
         [[DHRuleManager sharedManager] loadRules];

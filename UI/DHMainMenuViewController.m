@@ -188,6 +188,26 @@
             }
             [self.tableView reloadData];
         }];
+        UITableViewRowAction *rename = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"重命名" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名文件夹" message:nil preferredStyle:UIAlertControllerStyleAlert];
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.text = fname; }];
+            [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+                NSString *newName = alert.textFields[0].text;
+                if (!newName.length || [newName isEqualToString:fname]) return;
+                NSMutableArray *folders = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[]];
+                NSUInteger i = [folders indexOfObject:fname];
+                if (i != NSNotFound) folders[i] = newName;
+                [[NSUserDefaults standardUserDefaults] setObject:folders forKey:@"DHPatchFolders"];
+                for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+                    if ([h.folderName isEqualToString:fname]) h.folderName = newName;
+                }
+                [[DHHookManager sharedManager] saveHooks];
+                [self.tableView reloadData];
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }];
+        rename.backgroundColor = [UIColor systemBlueColor];
         UITableViewRowAction *del = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleDestructive title:@"删除文件夹" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
             UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"确认删除" message:[NSString stringWithFormat:@"删除文件夹「%@」将同时删除内部所有补丁，确定？", fname] preferredStyle:UIAlertControllerStyleAlert];
             [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -205,7 +225,7 @@
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
         }];
-        return @[del, disableAll, enableAll];
+        return @[del, rename, disableAll, enableAll];
     }
 
     // 补丁左滑
