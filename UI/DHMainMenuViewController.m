@@ -729,44 +729,14 @@
     if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
     DHScannerResult *r = self.filteredResults[ip.row];
     if ([r.methodName isEqualToString:@"(class)"]) {
-        c.textLabel.text = [NSString stringWithFormat:@"+ (Class)%@", r.className];
+        c.textLabel.text = [NSString stringWithFormat:@"@interface %@", r.className];
     } else {
-        // 强制推断显示
-        NSString *prefix = r.isClassMethod ? @"+" : @"-";
-        NSString *sel = r.methodName ?: @"";
-        NSString *ret;
-        if ([sel hasPrefix:@"set"]) ret = @"void";
-        else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) ret = @"BOOL";
-        else if ([sel hasPrefix:@"init"]) ret = @"id";
-        else ret = r.returnType ?: @"id";
-        // 补全参数
-        NSUInteger argc = [[sel componentsSeparatedByString:@":"] count] - 1;
-        NSString *displaySig;
-        if (argc == 0) {
-            displaySig = [NSString stringWithFormat:@"%@ (%@)%@", prefix, ret, sel];
-        } else {
-            NSArray *parts = [sel componentsSeparatedByString:@":"];
-            NSMutableString *sig = [NSMutableString stringWithFormat:@"%@ (%@)", prefix, ret];
-            NSUInteger idx = 1;
-            for (NSString *p in parts) {
-                if (p.length == 0) continue;
-                if (idx == 1) [sig appendFormat:@"%@:(id)arg%lu", p, (unsigned long)idx];
-                else [sig appendFormat:@" %@:(id)arg%lu", p, (unsigned long)idx];
-                idx++;
-            }
-            displaySig = sig;
-        }
-        c.textLabel.text = displaySig;
+        c.textLabel.text = r.fullSignature ?: r.methodName;
     }
     c.textLabel.font = [UIFont systemFontOfSize:12];
     c.textLabel.numberOfLines = 1;
     c.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    NSString *img = r.imageName ?: @"";
-    if (img.length) {
-        c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@ [%@]", r.className, img];
-    } else {
-        c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@", r.className];
-    }
+    c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@", r.className];
     c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
