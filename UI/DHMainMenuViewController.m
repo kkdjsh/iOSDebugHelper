@@ -1135,7 +1135,6 @@
         h.returnType = type;
         h.folderName = folderName;
         h.enabled = YES;
-        h.isPending = YES;
         NSString *sel = r.methodName;
         NSString *realType;
         if ([sel hasPrefix:@"set"]) realType = @"void";
