@@ -33,7 +33,7 @@ static BOOL g_monitoring = NO;
 - (BOOL)isMonitoring { return g_monitoring; }
 - (NSArray<DHMonitorEvent *> *)events { return [g_events copy]; }
 
-// 通用日志IMP：根据typeEncoding安全处理
+// 通用日志IMP：只安全处理void返回值
 static void dh_log_imp(id self, SEL _cmd, ...) {
     NSString *clsName = NSStringFromClass([self class]);
     NSString *selName = NSStringFromSelector(_cmd);
@@ -43,33 +43,18 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
     @synchronized(g_lastHitTime) {
         NSDate *last = g_lastHitTime[key];
         NSDate *now = [NSDate date];
-        if (last && [now timeIntervalSinceDate:last] < 1.0) return;
+        if (last && [now timeIntervalSinceDate:last] < 1.0) {
+            // 还是要调原方法
+            IMP orig = [g_origImpMap[key] pointerValue];
+            ((void(*)(id, SEL))orig)(self, _cmd);
+            return;
+        }
         g_lastHitTime[key] = now;
     }
 
-    // 调原方法拿返回值（基本类型安全处理）
-    Method m = class_getInstanceMethod([self class], _cmd);
-    const char *retType = method_copyReturnType(m);
-    NSString *retStr = @"";
-
-    if (retType && (retType[0] == 'v')) {
-        // void：直接调原方法
-        IMP orig = [g_origImpMap[key] pointerValue];
-        ((void(*)(id, SEL))orig)(self, _cmd);
-        retStr = @"(void)";
-    } else if (retType && (retType[0] == 'B' || retType[0] == 'c')) {
-        // BOOL
-        IMP orig = [g_origImpMap[key] pointerValue];
-        BOOL (*origFn)(id, SEL) = (BOOL(*)(id, SEL))orig;
-        BOOL result = origFn(self, _cmd);
-        retStr = result ? @"YES" : @"NO";
-    } else {
-        // 其他类型：只调用不打印返回值
-        IMP orig = [g_origImpMap[key] pointerValue];
-        ((void(*)(id, SEL))orig)(self, _cmd);
-        retStr = @"(non-bool)";
-    }
-    free((void *)retType);
+    // 调原方法
+    IMP orig = [g_origImpMap[key] pointerValue];
+    ((void(*)(id, SEL))orig)(self, _cmd);
 
     // 后台记录事件
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -78,7 +63,6 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
         NSString *appName = [[NSBundle mainBundle] infoDictionary][@"CFBundleExecutable"] ?: @"";
         for (NSString *line in stack) {
             if (line.length < 20) continue;
-            // 过滤系统库，保留主App和SDK
             if ([line containsString:@"/System/Library/"] || [line containsString:@"libobjc"] ||
                 [line containsString:@"libdyld"] || [line containsString:@"CoreFoundation"]) continue;
             if ([line containsString:appName] || [line containsString:@"GoogleMobileAds"] ||
@@ -87,8 +71,8 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
             }
         }
         DHMonitorEvent *e = [DHMonitorEvent new];
-        e.signature = [NSString stringWithFormat:@"%@ [%@]", selName, clsName];
-        e.returnValue = retStr;
+        e.signature = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
+        e.returnValue = @"(void)";
         e.callStack = [filtered componentsJoinedByString:@"\n"];
         e.time = [NSDate date];
         @synchronized(g_events) {
@@ -126,6 +110,11 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
                         }
                     }
                     if (!hit) continue;
+
+                    // 只hook void返回类型的方法，安全不崩溃
+                    const char *retType = method_copyReturnType(methods[j]);
+                    if (!retType || retType[0] != 'v') { free((void *)retType); continue; }
+                    free((void *)retType);
 
                     NSString *key = [NSString stringWithFormat:@"%@|%@", clsName, selName];
                     if (g_origImpMap[key]) continue; // 已hook

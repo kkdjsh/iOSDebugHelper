@@ -52,8 +52,10 @@ static NSMutableDictionary *sOriginalIMPs;
     [self loadHooks];
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
     for (DHHookInfo *hook in self.savedHooks) {
-        if (hook.enabled) [self applyHook:hook];
+        hook.enabled = YES; // 默认全部开启
+        [self applyHook:hook];
     }
+    [self saveHooks];
 }
 
 - (void)applyHook:(DHHookInfo *)hook {
