@@ -205,6 +205,39 @@ static NSString *DHImageNameForClass(Class cls) {
                 }
                 free(methods);
 
+                // 遍历类方法（元类）
+                unsigned int classMethodCount;
+                Method *classMethods = class_copyMethodList(object_getClass(cls), &classMethodCount);
+                for (unsigned int j = 0; j < classMethodCount; j++) {
+                    SEL sel = method_getName(classMethods[j]);
+                    NSString *selName = NSStringFromSelector(sel);
+                    if ([selName isEqualToString:@"isProxy"] ||
+                        [selName isEqualToString:@"isMemberOfClass:"] ||
+                        [selName isEqualToString:@"isKindOfClass:"] ||
+                        [selName isEqualToString:@"conformsToProtocol:"] ||
+                        [selName isEqualToString:@"respondsToSelector:"] ||
+                        [selName isEqualToString:@"class"] ||
+                        [selName isEqualToString:@"superclass"] ||
+                        [selName isEqualToString:@"retain"] ||
+                        [selName isEqualToString:@"release"] ||
+                        [selName isEqualToString:@"autorelease"] ||
+                        [selName isEqualToString:@"retainCount"] ||
+                        [selName isEqualToString:@"description"] ||
+                        [selName isEqualToString:@"debugDescription"]) {
+                        continue;
+                    }
+                    DHScannerResult *r = [DHScannerResult new];
+                    r.methodName = selName;
+                    r.className = className;
+                    r.category = DHScannerCategorySuspicious;
+                    r.matchedKeyword = @"";
+                    r.returnType = DHReturnTypeEncoding(classMethods[j]);
+                    r.imageName = DHImageNameForClass(cls);
+                    r.isClassMethod = YES;
+                    [results addObject:r];
+                }
+                free(classMethods);
+
                 if (progress && i % 100 == 0) progress(i, classCount);
             }
         }

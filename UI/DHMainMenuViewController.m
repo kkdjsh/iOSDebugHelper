@@ -307,8 +307,35 @@
         [seen addObject:key];
 
         NSString *prefix = h.isClassMethod ? @"+" : @"-";
-        NSString *rt = h.realReturnType ?: @"id";
-        if ([rt isEqualToString:@"void"]) rt = @"void";
+        // 容错：如果旧数据没有realReturnType，现场查runtime
+        NSString *rt = h.realReturnType;
+        NSUInteger argc = h.argCount;
+        if (!rt || argc == 0) {
+            Class cls = NSClassFromString(h.className);
+            if (cls) {
+                Class targetCls = h.isClassMethod ? object_getClass(cls) : cls;
+                SEL sel = NSSelectorFromString(h.selectorName);
+                Method m = class_getInstanceMethod(targetCls, sel);
+                if (m) {
+                    const char *ret = method_copyReturnType(m);
+                    if (ret) {
+                        NSString *s = [NSString stringWithUTF8String:ret];
+                        free((void *)ret);
+                        if (!rt || !rt.length) {
+                            if ([s isEqualToString:@"v"]) rt = @"void";
+                            else if ([s isEqualToString:@"B"] || [s isEqualToString:@"c"]) rt = @"BOOL";
+                            else if ([s isEqualToString:@"i"] || [s isEqualToString:@"s"] || [s isEqualToString:@"l"] || [s isEqualToString:@"q"]) rt = @"NSInteger";
+                            else if ([s isEqualToString:@"f"] || [s isEqualToString:@"d"]) rt = @"double";
+                            else if ([s isEqualToString:@"#"]) rt = @"Class";
+                            else rt = @"id";
+                        }
+                    }
+                }
+            }
+            // 从selectorName数冒号
+            argc = [[h.selectorName componentsSeparatedByString:@":"] count] - 1;
+        }
+        if (!rt) rt = @"id";
 
         // 构造完整方法签名
         NSString *signature;
