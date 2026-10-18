@@ -1174,18 +1174,16 @@
     UIViewController *vc = [UIViewController new];
     vc.view = tv;
     vc.title = @"日志查看";
-    UIAlertAction *(^clearAction)(void) = ^UIAlertAction *{
-        return [UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDone handler:^(UIAlertAction *a) {
-            [[DHLogManager sharedManager] clearTodayLog];
-            tv.text = @"";
-        }];
-    };
-    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStyleDone handler:^(UIBarButtonItem *btn) {
-        [[DHLogManager sharedManager] clearTodayLog];
-        tv.text = @"";
-    }];
+    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:nil action:nil];
+    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearLogs:)];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)clearLogs:(id)sender {
+    [[DHLogManager sharedManager] clearTodayLog];
+    [self showToast:@"日志已清空"];
+}
 
 - (void)resetAllConfig {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置配置" message:@"将清除所有规则、Hook、补丁和设置，确定继续？" preferredStyle:UIAlertControllerStyleAlert];
