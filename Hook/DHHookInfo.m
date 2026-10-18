@@ -29,7 +29,7 @@
         _returnType = [c decodeIntegerForKey:@"returnType"];
         _customValue = [c decodeObjectForKey:@"customValue"];
         _reason = [c decodeObjectOfClass:NSString.class forKey:@"reason"];
-        _enabled = [c decodeBoolForKey:@"enabled"];
+        _enabled = [c containsValueForKey:@"enabled"] ? [c decodeBoolForKey:@"enabled"] : YES;
         _folderName = [c decodeObjectOfClass:NSString.class forKey:@"folderName"];
         _realReturnType = [c decodeObjectOfClass:NSString.class forKey:@"realReturnType"];
         _argCount = [c decodeIntegerForKey:@"argCount"];
