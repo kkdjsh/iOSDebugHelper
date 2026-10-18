@@ -2,7 +2,7 @@ THEOS_PACKAGE_SCHEME = rootless
 export THEOS=/opt/theos
 
 TARGET := iphone:clang:latest:14.0
-ARCHS = arm64 arm64e
+ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
@@ -14,6 +14,7 @@ iOSDebugHelper_FILES = Tweak.x \
     Network/DHInterceptRule.m \
     Network/DHNetworkInterceptor.m \
     Hook/DHHookManager.m \
+    Hook/DHMonitorManager.m \
     Hook/DHHookInfo.m \
     Hook/DHPatch.m \
     Crypto/DHCryptManager.m \

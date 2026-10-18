@@ -13,6 +13,7 @@
 #import "DHInterceptRule.h"
 #import "DHCryptManager.h"
 #import "DHKeywordVC.h"
+#import "DHMonitorManager.h"
 #import <objc/runtime.h>
 
 #pragma mark - 通用列表控制器
@@ -1074,6 +1075,7 @@
                 @{@"title": @"网络规则",     @"icon": @"network", @"action": @"openNetworkRules"},
                 @{@"title": @"全局扫描",     @"icon": @"magnifyingglass.circle.fill", @"action": @"openGlobalScan"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
+                @{@"title": @"动态监控",     @"icon": @"waveform", @"action": @"openMonitor"},
             ],
         },
         @{
@@ -1133,6 +1135,8 @@
         [self runFullScan];
     } else if ([action isEqualToString:@"openLogs"]) {
         [self showLogs];
+    } else if ([action isEqualToString:@"openMonitor"]) {
+        [self showMonitor];
     } else if ([action isEqualToString:@"openAbout"]) {
         [self showAlert:@"关于本工具" message:@"iOS调试助手 v1.0.0\n基于FLEX框架二次开发\n仅供学习研究使用"];
     } else if ([action isEqualToString:@"openHelp"]) {
@@ -1203,6 +1207,78 @@
 - (void)clearLogs:(id)sender {
     [[DHLogManager sharedManager] clearTodayLog];
     [self showToast:@"日志已清空"];
+}
+
+- (void)showMonitor {
+    DHMonitorManager *mgr = [DHMonitorManager shared];
+    UITextView *tv = [[UITextView alloc] init];
+    tv.editable = NO;
+    tv.font = [UIFont fontWithName:@"Menlo" size:10];
+    UIViewController *vc = [UIViewController new];
+    vc.view = tv;
+    vc.title = @"动态监控";
+
+    UISwitch *sw = [[UISwitch alloc] init];
+    sw.on = mgr.isMonitoring;
+    [sw addTarget:self action:@selector(monitorSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
+    vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"选词库" style:UIBarButtonItemStylePlain target:self action:@selector(selectMonitorKeyword)];
+
+    // 刷新显示
+    void(^refresh)(void) = ^{
+        NSMutableString *s = [NSMutableString new];
+        for (DHMonitorEvent *e in mgr.events) {
+            [s appendFormat:@"[%@] %@ → %@\n", e.time, e.signature, e.returnValue];
+            if (e.callStack.length) [s appendFormat:@"  栈: %@\n\n", e.callStack];
+        }
+        tv.text = s.length ? s : @"未启动监控或无事件";
+    };
+    refresh();
+    // 每2秒自动刷新
+    [NSTimer scheduledTimerWithTimeInterval:2 repeats:YES block:^(NSTimer *t) {
+        if (!vc.isViewLoaded || !vc.view.window) { [t invalidate]; return; }
+        refresh();
+    }];
+
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)monitorSwitchChanged:(UISwitch *)sw {
+    DHMonitorManager *mgr = [DHMonitorManager shared];
+    if (sw.on) {
+        if (!mgr.isMonitoring) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请先选择词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) { sw.on = NO; }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"选择词库" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self selectMonitorKeyword]; }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+    } else {
+        [mgr stop];
+    }
+}
+
+- (void)selectMonitorKeyword {
+    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[];
+    if (folders.count == 0) { [self showToast:@"请先创建词库"]; return; }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择监控词库" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary *f in folders) {
+        NSString *name = f[@"name"];
+        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            NSString *content = f[@"content"] ?: @"";
+            NSArray *parts = [content componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
+            NSMutableSet *kws = [NSMutableSet new];
+            for (NSString *p in parts) {
+                NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                if (t.length) [kws addObject:t];
+            }
+            [[DHMonitorManager shared] stop];
+            [[DHMonitorManager shared] startWithKeywords:kws];
+            [self showToast:[NSString stringWithFormat:@"监控已启动: %@", name]];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)resetAllConfig {
