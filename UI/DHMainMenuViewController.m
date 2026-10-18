@@ -96,7 +96,7 @@
         UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCompose target:self action:@selector(moreMenu)];
         self.navigationItem.rightBarButtonItems = @[moreBtn];
     }
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
+    self.tableView.rowHeight = 60;
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
 
