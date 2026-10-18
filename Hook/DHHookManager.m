@@ -7,6 +7,7 @@
 #import "DHHookManager.h"
 #import "DHLogManager.h"
 #import <objc/runtime.h>
+#import <UIKit/UIKit.h>
 
 static NSMutableDictionary *sOriginalIMPs;
 
