@@ -24,7 +24,7 @@
     NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
     return saved ? [saved mutableCopy] : [NSMutableArray new];
 }
-- (void)save:(NSMutableArray *)f { [[NSUserDefaults standardUserDefaults] setObject:f forKey:@"DHKeywordFolders"]; }
+- (void)save:(NSMutableArray *)f { [[NSUserDefaults standardUserDefaults] setObject:f forKey:@"DHKeywordFolders"]; [[NSUserDefaults standardUserDefaults] synchronize]; }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
 - (void)addFolder {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
@@ -102,6 +102,7 @@
     folder[@"content"] = self.tv.text;
     self.folders[self.idx] = folder;
     [[NSUserDefaults standardUserDefaults] setObject:self.folders forKey:@"DHKeywordFolders"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     [self.navigationController popViewControllerAnimated:YES];
 }
 @end

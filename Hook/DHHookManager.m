@@ -27,8 +27,7 @@ static NSMutableDictionary *sOriginalIMPs;
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _savedHooks = @[];
-        _savedPatches = @[];
+        [self loadHooks];
     }
     return self;
 }
