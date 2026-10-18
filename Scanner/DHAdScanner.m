@@ -186,6 +186,17 @@ static NSString *DHBuildFullSignature(Method m, BOOL isClass) {
                     continue;
                 }
 
+                // 跳过系统库
+                const char *imgPath = class_getImageName(cls);
+                if (imgPath) {
+                    NSString *path = [NSString stringWithUTF8String:imgPath];
+                    if ([path containsString:@"/System/Library/"] || [path containsString:@"/usr/lib/"]) continue;
+                }
+                // 跳过SwiftUI/Vision等系统前缀
+                if ([className hasPrefix:@"SwiftUI."] || [className hasPrefix:@"Vision."] ||
+                    [className hasPrefix:@"VisionCore."] || [className hasPrefix:@"Combine."] ||
+                    [className hasPrefix:@"_SwiftUI"]) continue;
+
                 // 添加类本身
                 DHScannerResult *cr = [DHScannerResult new];
                 cr.methodName = @"(class)";
