@@ -114,7 +114,9 @@
         c.textLabel.font = [UIFont systemFontOfSize:14];
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         UISwitch *sw = [[UISwitch alloc] init];
-        sw.on = anyOn;
+        NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
+        NSNumber *savedState = folderStates[fname];
+        sw.on = savedState ? [savedState boolValue] : anyOn;
         sw.tag = 9000 + ip.row;
         [sw addTarget:self action:@selector(folderSwitchToggled:) forControlEvents:UIControlEventValueChanged];
         c.accessoryView = sw;
@@ -170,6 +172,11 @@
             else if (!sw.on && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
         }
     }
+    // 持久化文件夹开关状态
+    NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
+    folderStates[fname] = @(sw.on);
+    [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     [self.tableView reloadData];
 }
 
