@@ -32,6 +32,9 @@ static NSString *const kDHSavedPatchesKey = @"DHSavedPatches";
 /// 切换 Hook 启用/禁用
 - (void)toggleHook:(DHHookInfo *)hook;
 
+/// 立即应用单个Hook
+- (void)applyHook:(DHHookInfo *)hook;
+
 /// 保存配置到 NSUserDefaults
 - (void)saveHooks;
 
