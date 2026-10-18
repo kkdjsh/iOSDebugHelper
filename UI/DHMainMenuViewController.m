@@ -986,7 +986,7 @@
     if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
     _activeKeywords = [kws copy];
     [self applyFilter];
-    [self showToast:[NSString stringWithFormat:@"已应用词库: %@", folder[@"name"]]];
+    [self showToast:[NSString stringWithFormat:@"%@: 匹配到%lu条", folder[@"name"], (unsigned long)self.filteredResults.count]];
 }
 
 - (void)applyFilter {
@@ -1045,7 +1045,6 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.filteredResults = result;
                 [self.tableView reloadData];
-                self.navigationItem.title = [NSString stringWithFormat:@"扫描结果 (%lu)", (unsigned long)result.count];
             });
         });
     }];
@@ -1090,13 +1089,18 @@
     NSInteger added = 0;
     for (DHScannerResult *r in self.filteredResults) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
-        // 去重：类名+方法名
-        BOOL exists = NO;
+        // 找已存在的
+        DHHookInfo *existing = nil;
         for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-            if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) { exists = YES; break; }
+            if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) { existing = h; break; }
         }
-        if (exists) continue;
-
+        if (existing) {
+            // 更新返回类型
+            existing.returnType = type;
+            [[DHHookManager sharedManager] saveHooks];
+            added++;
+            continue;
+        }
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;
@@ -1114,7 +1118,7 @@
         [[DHHookManager sharedManager] addHook:h];
         added++;
     }
-    [self showToast:[NSString stringWithFormat:@"批量添加%lu个补丁", (long)added]];
+    [self showToast:[NSString stringWithFormat:@"批量处理%lu个补丁", (long)added]];
     [self.tableView reloadData];
 }
 @end
@@ -1332,9 +1336,13 @@
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置配置" message:@"将清除所有规则、Hook、补丁和设置，确定继续？" preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [[DHHookManager sharedManager] clearAllHooks];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHInterceptRules"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHSavedHooks"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHSavedPatches"];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPatchFolders"];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHKeywordFolders"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
         DHLogInfo(@"已重置全部配置");
         [self showAlert:@"完成" message:@"所有配置已重置"];
     }]];
