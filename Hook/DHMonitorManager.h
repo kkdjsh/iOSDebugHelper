@@ -5,6 +5,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "DHAdScanner.h"
 
 @interface DHMonitorEvent : NSObject
 @property (nonatomic, copy) NSString *signature;
@@ -17,7 +18,7 @@
 + (instancetype)shared;
 @property (nonatomic, assign, readonly) BOOL isMonitoring;
 @property (nonatomic, copy, readonly) NSArray<DHMonitorEvent *> *events;
-- (void)startWithKeywords:(NSSet<NSString *> *)keywords;
+- (void)startWithResults:(NSArray<DHScannerResult *> *)results;
 - (void)stop;
 - (void)clearEvents;
 @end

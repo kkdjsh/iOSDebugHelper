@@ -663,6 +663,7 @@
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
     ];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
     self.tableView.rowHeight = 44;
@@ -1222,7 +1223,7 @@
     sw.on = mgr.isMonitoring;
     [sw addTarget:self action:@selector(monitorSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
-    vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"选词库" style:UIBarButtonItemStylePlain target:self action:@selector(selectMonitorKeyword)];
+    vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearMonitorEvents)];
 
     // 刷新显示
     void(^refresh)(void) = ^{
@@ -1244,46 +1245,29 @@
     [self presentViewController:nav animated:YES completion:nil];
 }
 
+- (void)clearMonitorEvents {
+    [[DHMonitorManager shared] clearEvents];
+    [self showToast:@"已清空"];
+}
+
 - (void)monitorSwitchChanged:(UISwitch *)sw {
-    DHMonitorManager *mgr = [DHMonitorManager shared];
     if (sw.on) {
-        if (!mgr.isMonitoring) {
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请先选择词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) { sw.on = NO; }]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"选择词库" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self selectMonitorKeyword]; }]];
-            [self presentViewController:alert animated:YES completion:nil];
-        }
+        [self showToast:@"请从扫描结果页点眼睛按钮选择监控方法"];
+        sw.on = NO;
     } else {
-        [mgr stop];
+        [[DHMonitorManager shared] stop];
     }
 }
 
-- (void)selectMonitorKeyword {
-    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
-    NSLog(@"DHMonitor: folders = %@", folders);
-    if (folders.count == 0) { [self showToast:@"请先创建词库"]; return; }
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择监控词库" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSDictionary *f in folders) {
-        NSString *name = f[@"name"];
-        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            NSString *content = f[@"content"] ?: @"";
-            NSArray *parts = [content componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
-            NSMutableSet *kws = [NSMutableSet new];
-            for (NSString *p in parts) {
-                NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                if (t.length) [kws addObject:t];
-            }
-            NSLog(@"DHMonitor: starting with keywords = %@", kws);
-            [[DHMonitorManager shared] stop];
-            [[DHMonitorManager shared] startWithKeywords:kws];
-            [self showToast:[NSString stringWithFormat:@"监控已启动: %@ (%lu词)", name, (unsigned long)kws.count]];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    // 从最顶层VC弹出
-    UIViewController *top = [UIApplication sharedApplication].keyWindow.rootViewController;
-    while (top.presentedViewController) top = top.presentedViewController;
-    [top presentViewController:sheet animated:YES completion:nil];
+- (void)startMonitorFromScan {
+    NSArray *results = self.filteredResults;
+    if (results.count == 0) { [self showToast:@"当前无筛选结果"]; return; }
+    [[DHMonitorManager shared] stop];
+    [[DHMonitorManager shared] startWithResults:results];
+    [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
+    [self dismissViewControllerAnimated:YES completion:^{
+        [self showMonitor];
+    }];
 }
 
 - (void)resetAllConfig {

@@ -82,51 +82,30 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
     });
 }
 
-- (void)startWithKeywords:(NSSet<NSString *> *)keywords {
+- (void)startWithResults:(NSArray<DHScannerResult *> *)results {
     if (g_monitoring) return;
     g_monitoring = YES;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @synchronized(g_origImpMap) {
-            unsigned int classCount;
-            Class *classes = objc_copyClassList(&classCount);
-            for (unsigned int i = 0; i < classCount; i++) {
-                Class cls = classes[i];
-                NSString *clsName = NSStringFromClass(cls);
-                // 只扫非系统类
-                if ([clsName hasPrefix:@"NS"] || [clsName hasPrefix:@"UI"] ||
-                    [clsName hasPrefix:@"_"] || [clsName hasPrefix:@"__"]) continue;
+            for (DHScannerResult *r in results) {
+                if ([r.methodName isEqualToString:@"(class)"]) continue;
+                Class cls = NSClassFromString(r.className);
+                if (!cls) continue;
+                if (r.isClassMethod) cls = object_getClass(cls);
+                SEL sel = NSSelectorFromString(r.methodName);
+                Method m = class_getInstanceMethod(cls, sel);
+                if (!m) continue;
+                // 只hook void类型
+                const char *retType = method_copyReturnType(m);
+                if (!retType || retType[0] != 'v') { free((void *)retType); continue; }
+                free((void *)retType);
 
-                unsigned int methodCount;
-                Method *methods = class_copyMethodList(cls, &methodCount);
-                for (unsigned int j = 0; j < methodCount; j++) {
-                    SEL sel = method_getName(methods[j]);
-                    NSString *selName = NSStringFromSelector(sel);
-                    // 检查是否命中关键词
-                    BOOL hit = NO;
-                    for (NSString *kw in keywords) {
-                        if ([clsName rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                            [selName rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                            hit = YES; break;
-                        }
-                    }
-                    if (!hit) continue;
-
-                    // 只hook void返回类型的方法，安全不崩溃
-                    const char *retType = method_copyReturnType(methods[j]);
-                    if (!retType || retType[0] != 'v') { free((void *)retType); continue; }
-                    free((void *)retType);
-
-                    NSString *key = [NSString stringWithFormat:@"%@|%@", clsName, selName];
-                    if (g_origImpMap[key]) continue; // 已hook
-
-                    IMP origImp = method_getImplementation(methods[j]);
-                    g_origImpMap[key] = [NSValue valueWithPointer:origImp];
-                    IMP newImp = (IMP)dh_log_imp;
-                    method_setImplementation(methods[j], newImp);
-                }
-                free(methods);
+                NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+                if (g_origImpMap[key]) continue;
+                IMP origImp = method_getImplementation(m);
+                g_origImpMap[key] = [NSValue valueWithPointer:origImp];
+                method_setImplementation(m, (IMP)dh_log_imp);
             }
-            free(classes);
         }
         DHLogInfo(@"动态监控已启动，hook了%lu个方法", (unsigned long)g_origImpMap.count);
     });
