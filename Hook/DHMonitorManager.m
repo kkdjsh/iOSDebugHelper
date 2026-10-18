@@ -33,28 +33,38 @@ static BOOL g_monitoring = NO;
 - (BOOL)isMonitoring { return g_monitoring; }
 - (NSArray<DHMonitorEvent *> *)events { return [g_events copy]; }
 
-// 通用日志IMP：只安全处理void返回值
+// 通用日志IMP：安全处理void和BOOL
 static void dh_log_imp(id self, SEL _cmd, ...) {
     NSString *clsName = NSStringFromClass([self class]);
     NSString *selName = NSStringFromSelector(_cmd);
     NSString *key = [NSString stringWithFormat:@"%@|%@", clsName, selName];
 
     // 防刷屏：1秒内同key只记一次
+    BOOL shouldLog = YES;
     @synchronized(g_lastHitTime) {
         NSDate *last = g_lastHitTime[key];
         NSDate *now = [NSDate date];
-        if (last && [now timeIntervalSinceDate:last] < 1.0) {
-            // 还是要调原方法
-            IMP orig = [g_origImpMap[key] pointerValue];
-            ((void(*)(id, SEL))orig)(self, _cmd);
-            return;
-        }
-        g_lastHitTime[key] = now;
+        if (last && [now timeIntervalSinceDate:last] < 1.0) shouldLog = NO;
+        else g_lastHitTime[key] = now;
     }
 
     // 调原方法
+    Method m = class_getInstanceMethod([self class], _cmd);
+    const char *retType = m ? method_copyReturnType(m) : "";
+    NSString *retStr = @"";
     IMP orig = [g_origImpMap[key] pointerValue];
-    ((void(*)(id, SEL))orig)(self, _cmd);
+
+    if (retType[0] == 'B' || retType[0] == 'c') {
+        BOOL (*origFn)(id, SEL) = (BOOL(*)(id, SEL))orig;
+        BOOL result = origFn(self, _cmd);
+        retStr = result ? @"YES" : @"NO";
+    } else {
+        ((void(*)(id, SEL))orig)(self, _cmd);
+        retStr = @"(void)";
+    }
+    if (m) free((void *)retType);
+
+    if (!shouldLog) return;
 
     // 后台记录事件
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -72,7 +82,7 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
         }
         DHMonitorEvent *e = [DHMonitorEvent new];
         e.signature = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
-        e.returnValue = @"(void)";
+        e.returnValue = retStr;
         e.callStack = [filtered componentsJoinedByString:@"\n"];
         e.time = [NSDate date];
         @synchronized(g_events) {
@@ -95,9 +105,9 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
                 SEL sel = NSSelectorFromString(r.methodName);
                 Method m = class_getInstanceMethod(cls, sel);
                 if (!m) continue;
-                // 只hook void类型
+                // 只hook void和BOOL类型，安全
                 const char *retType = method_copyReturnType(m);
-                if (!retType || retType[0] != 'v') { free((void *)retType); continue; }
+                if (!retType || (retType[0] != 'v' && retType[0] != 'B' && retType[0] != 'c')) { free((void *)retType); continue; }
                 free((void *)retType);
 
                 NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];

@@ -1033,6 +1033,7 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.filteredResults = result;
                 [self.tableView reloadData];
+                self.navigationItem.title = [NSString stringWithFormat:@"扫描结果 (%lu)", (unsigned long)result.count];
             });
         });
     }];
