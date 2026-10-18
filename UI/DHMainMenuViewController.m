@@ -548,12 +548,15 @@
         else if ([retVal isEqualToString:@"0"]) h.returnType = DHHookReturnZero;
         else if ([retVal hasPrefix:@"@\""]) { h.returnType = DHHookReturnCustomString; h.customValue = [retVal substringWithRange:NSMakeRange(2, retVal.length-3)]; }
         else { h.returnType = DHHookReturnCustomNumber; h.customValue = retVal; }
-        h.enabled = NO;
+        h.enabled = YES;
         [[DHHookManager sharedManager] addHook:h];
-        // addHook会自动enable，需要立即关掉
-        [[DHHookManager sharedManager] toggleHook:h];
         count++;
     }
+    // 保存文件夹开关状态为ON
+    NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
+    folderStates[finalName] = @(YES);
+    [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     [self.tableView reloadData];
     UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:[NSString stringWithFormat:@"成功导入 %ld 个补丁到 %@", (long)count, finalName] preferredStyle:UIAlertControllerStyleAlert];
     [t addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];

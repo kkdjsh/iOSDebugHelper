@@ -82,9 +82,16 @@ static NSMutableDictionary *sOriginalIMPs;
         });
     }
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
+    // 读取文件夹开关状态，ON的文件夹里所有hook都启用
+    NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
     for (DHHookInfo *hook in self.savedHooks) {
+        if (hook.folderName.length > 0) {
+            NSNumber *state = folderStates[hook.folderName];
+            if (state) hook.enabled = [state boolValue];
+        }
         if (hook.enabled) [self applyHook:hook];
     }
+    [self saveHooks];
 }
 
 - (void)applyHook:(DHHookInfo *)hook {
