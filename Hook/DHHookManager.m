@@ -206,7 +206,26 @@ static NSMutableDictionary *sOriginalIMPs;
         for (DHHookInfo *h in self.savedHooks) {
             if (![h.className isEqualToString:cls]) continue;
             NSString *prefix = h.isClassMethod ? @"+" : @"-";
-            [code appendFormat:@"%@(void)%@ {\n", prefix, h.selectorName];
+            NSString *retType = h.realReturnType ?: @"id";
+
+            // 构造带参数的方法签名
+            NSString *sel = h.selectorName ?: @"";
+            NSMutableString *methodSig = [NSMutableString string];
+            if ([sel containsString:@":"]) {
+                NSArray *parts = [sel componentsSeparatedByString:@":"];
+                NSUInteger argIdx = 1;
+                for (NSUInteger i = 0; i < parts.count; i++) {
+                    NSString *part = parts[i];
+                    if (part.length == 0) continue;
+                    if (argIdx == 1) [methodSig appendFormat:@"%@:(id)arg%lu", part, (unsigned long)argIdx];
+                    else [methodSig appendFormat:@" %@:(id)arg%lu", part, (unsigned long)argIdx];
+                    argIdx++;
+                }
+            } else {
+                [methodSig setString:sel];
+            }
+
+            [code appendFormat:@"%@ (%@)%@ {\n", prefix, retType, methodSig];
             switch (h.returnType) {
                 case DHHookReturnTrue:  [code appendString:@"    return YES;\n"]; break;
                 case DHHookReturnFalse: [code appendString:@"    return NO;\n"]; break;
@@ -214,7 +233,8 @@ static NSMutableDictionary *sOriginalIMPs;
                 case DHHookReturnZero:  [code appendString:@"    return 0;\n"]; break;
                 case DHHookReturnCustomString: [code appendFormat:@"    return @\"%@\";\n", h.customValue ?: @""]; break;
                 case DHHookReturnCustomNumber: [code appendFormat:@"    return %@;\n", h.customValue ?: @(0)]; break;
-                default: break;
+                case DHHookReturnVoid:  [code appendString:@"    // 拦截，不调用原方法\n    return;\n"]; break;
+                default: [code appendString:@"    return %orig;\n"]; break;
             }
             [code appendString:@"}\n"];
         }
