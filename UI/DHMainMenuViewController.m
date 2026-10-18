@@ -1087,20 +1087,19 @@
 
 - (void)batchPatchWithType:(DHHookReturnType)type {
     NSInteger added = 0;
+    NSMutableArray *toRemove = [NSMutableArray new];
     for (DHScannerResult *r in self.filteredResults) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
-        // 找已存在的
-        DHHookInfo *existing = nil;
         for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-            if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) { existing = h; break; }
+            if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) {
+                [toRemove addObject:h];
+                break;
+            }
         }
-        if (existing) {
-            // 更新返回类型
-            existing.returnType = type;
-            [[DHHookManager sharedManager] saveHooks];
-            added++;
-            continue;
-        }
+    }
+    for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
+    for (DHScannerResult *r in self.filteredResults) {
+        if ([r.methodName isEqualToString:@"(class)"]) continue;
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;
