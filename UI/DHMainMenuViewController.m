@@ -149,6 +149,7 @@
         case DHHookReturnTrue: retStr = @"→TRUE"; break;
         case DHHookReturnFalse: retStr = @"→FALSE"; break;
         case DHHookReturnNil: retStr = @"→nil"; break;
+        case DHHookReturnVoid: retStr = @"→void"; break;
         case DHHookReturnZero: retStr = @"→0"; break;
         case DHHookReturnCustomString: retStr = [NSString stringWithFormat:@"→\"%@\"", h.customValue ?: @""]; break;
         case DHHookReturnCustomNumber: retStr = [NSString stringWithFormat:@"→%@", h.customValue ?: @0]; break;
@@ -771,6 +772,9 @@
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"返回 nil" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self addHook:r returnType:DHHookReturnNil custom:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"拦截/空实现 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnVoid custom:nil];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"返回 0" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self addHook:r returnType:DHHookReturnZero custom:nil];

@@ -109,7 +109,18 @@ static NSMutableDictionary *sOriginalIMPs;
 
     IMP newImp = NULL;
 
-    if ([typeStr isEqualToString:@"v"]) {
+    if (hook.returnType == DHHookReturnVoid) {
+        // 拦截：不调用原方法，按类型返回默认值
+        if ([typeStr isEqualToString:@"v"]) {
+            newImp = imp_implementationWithBlock(^void(id self, SEL _cmd) {});
+        } else if ([typeStr isEqualToString:@"B"] || [typeStr isEqualToString:@"c"]) {
+            newImp = imp_implementationWithBlock(^BOOL(id self, SEL _cmd) { return NO; });
+        } else if ([typeStr hasPrefix:@"@"]) {
+            newImp = imp_implementationWithBlock(^id(id self, SEL _cmd) { return nil; });
+        } else {
+            newImp = imp_implementationWithBlock(^void(id self, SEL _cmd) {});
+        }
+    } else if ([typeStr isEqualToString:@"v"]) {
         // void 返回 - 直接什么都不做（跳过原方法）
         newImp = imp_implementationWithBlock(^void(id self, SEL _cmd) {});
     } else if ([typeStr isEqualToString:@"B"] || [typeStr isEqualToString:@"c"] || [typeStr isEqualToString:@"C"]) {
