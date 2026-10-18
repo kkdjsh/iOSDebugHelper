@@ -60,15 +60,52 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)applyEnabledHooks {
     [self loadHooks];
+    // 检查是否有未确认的hook（上次启动没撑过5秒）
+    NSArray *pendingKeys = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPendingTestKeys"];
+    if (pendingKeys.count > 0) {
+        // 上次闪退了，禁用这些hook
+        for (DHHookInfo *h in self.savedHooks) {
+            NSString *k = [NSString stringWithFormat:@"%@|%@", h.className, h.selectorName];
+            if ([pendingKeys containsObject:k]) {
+                h.enabled = NO;
+            }
+        }
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingTestKeys"];
+        [self saveHooks];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIAlertController *a = [UIAlertController alertControllerWithTitle:@"安全保护" message:@"检测到上次新增补丁导致闪退，已自动关闭" preferredStyle:UIAlertControllerStyleAlert];
+            [a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+            [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
+        });
+    }
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
-    // 读取文件夹开关状态，ON的文件夹里所有hook都启用
+    // 读取文件夹开关状态
     NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
+    NSMutableArray *newPending = [NSMutableArray new];
     for (DHHookInfo *hook in self.savedHooks) {
         if (hook.folderName.length > 0) {
             NSNumber *state = folderStates[hook.folderName];
             if (state) hook.enabled = [state boolValue];
         }
-        if (hook.enabled) [self applyHook:hook];
+        if (hook.enabled) {
+            [self applyHook:hook];
+            // 如果这个hook是新增未确认的，加入pending
+            if (hook.isPending) {
+                NSString *k = [NSString stringWithFormat:@"%@|%@", hook.className, hook.selectorName];
+                [newPending addObject:k];
+            }
+        }
+    }
+    // 保存pending标记（5秒后清除）
+    if (newPending.count > 0) {
+        [[NSUserDefaults standardUserDefaults] setObject:newPending forKey:@"DHPendingTestKeys"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            // 5秒没崩，清除pending标记
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingTestKeys"];
+            for (DHHookInfo *h in self.savedHooks) h.isPending = NO;
+            [self saveHooks];
+        });
     }
     [self saveHooks];
 }
@@ -151,6 +188,7 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)addHook:(DHHookInfo *)hook {
     hook.enabled = YES;
+    hook.isPending = YES;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr addObject:hook];
     self.savedHooks = arr;

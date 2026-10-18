@@ -17,6 +17,7 @@
     [c encodeObject:self.folderName forKey:@"folderName"];
     [c encodeObject:self.realReturnType forKey:@"realReturnType"];
     [c encodeInteger:self.argCount forKey:@"argCount"];
+    [c encodeBool:self.isPending forKey:@"isPending"];
 }
 - (instancetype)initWithCoder:(NSCoder *)c {
     self = [super init];
@@ -30,6 +31,7 @@
         _folderName = [c decodeObjectOfClass:NSString.class forKey:@"folderName"];
         _realReturnType = [c decodeObjectOfClass:NSString.class forKey:@"realReturnType"];
         _argCount = [c decodeIntegerForKey:@"argCount"];
+        _isPending = [c decodeBoolForKey:@"isPending"];
     }
     return self;
 }
