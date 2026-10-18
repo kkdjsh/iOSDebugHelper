@@ -678,8 +678,7 @@
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
     ];
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
-    self.tableView.rowHeight = 44;
+    self.tableView.rowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
     header.backgroundColor = [UIColor whiteColor];
