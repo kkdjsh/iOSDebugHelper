@@ -54,36 +54,6 @@ static NSString *DHReturnTypeEncoding(Method m) {
     return s;
 }
 
-// 解析方法的第n个参数类型（0-based，跳过self和_cmd）
-static NSString *DHArgumentTypeAtIndex(Method m, NSUInteger argIndex) {
-    // method_getTypeEncoding 格式: 返回类型 + @ + : + 参数1 + 参数2 + ...
-    // self是@, _cmd是:
-    const char *types = method_getTypeEncoding(m);
-    if (!types) return @"id";
-
-    // 先跳过返回类型（可能是结构体等复杂类型，需要跳过{}）
-    NSUInteger pos = 0;
-    typesSkipType(types, &pos);
-    // 跳过 self (类型@) 和 _cmd (类型:)
-    pos++; // self
-    pos++; // _cmd
-
-    // 现在跳到目标参数
-    for (NSUInteger i = 0; i < argIndex; i++) {
-        typesSkipType(types, &pos);
-    }
-
-    // 读取当前参数类型
-    char buf[256];
-    NSUInteger start = pos;
-    typesSkipType(types, &pos);
-    NSUInteger len = pos - start;
-    if (len >= sizeof(buf)) len = sizeof(buf)-1;
-    strncpy(buf, types + start, len);
-    buf[len] = 0;
-    return DHTypeEncodingToObjC(buf);
-}
-
 static void typesSkipType(const char *types, NSUInteger *pos) {
     char c = types[*pos];
     if (c == 0) return;
@@ -114,6 +84,36 @@ static void typesSkipType(const char *types, NSUInteger *pos) {
     }
     // 基本类型只占1个字符
     (*pos)++;
+}
+
+// 解析方法的第n个参数类型（0-based，跳过self和_cmd）
+static NSString *DHArgumentTypeAtIndex(Method m, NSUInteger argIndex) {
+    // method_getTypeEncoding 格式: 返回类型 + @ + : + 参数1 + 参数2 + ...
+    // self是@, _cmd是:
+    const char *types = method_getTypeEncoding(m);
+    if (!types) return @"id";
+
+    // 先跳过返回类型（可能是结构体等复杂类型，需要跳过{}）
+    NSUInteger pos = 0;
+    typesSkipType(types, &pos);
+    // 跳过 self (类型@) 和 _cmd (类型:)
+    pos++; // self
+    pos++; // _cmd
+
+    // 现在跳到目标参数
+    for (NSUInteger i = 0; i < argIndex; i++) {
+        typesSkipType(types, &pos);
+    }
+
+    // 读取当前参数类型
+    char buf[256];
+    NSUInteger start = pos;
+    typesSkipType(types, &pos);
+    NSUInteger len = pos - start;
+    if (len >= sizeof(buf)) len = sizeof(buf)-1;
+    strncpy(buf, types + start, len);
+    buf[len] = 0;
+    return DHTypeEncodingToObjC(buf);
 }
 
 static NSString *DHImageNameForClass(Class cls) {
