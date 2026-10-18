@@ -985,8 +985,10 @@
     }
     if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
     _activeKeywords = [kws copy];
-    [self applyFilter];
-    [self showToast:[NSString stringWithFormat:@"%@: 匹配到%lu条", folder[@"name"], (unsigned long)self.filteredResults.count]];
+    [self searchBar:self.searchBar textDidChange:self.searchBar.text ?: @""];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self showToast:[NSString stringWithFormat:@"%@: 匹配到%lu条", folder[@"name"], (unsigned long)self.filteredResults.count]];
+    });
 }
 
 - (void)applyFilter {
@@ -1073,19 +1075,34 @@
 - (void)batchPatchMenu {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"批量生成补丁" message:[NSString stringWithFormat:@"当前列表%lu条", (unsigned long)self.filteredResults.count] preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [self batchPatchWithType:DHHookReturnTrue];
+        [self chooseFolderThenBatch: DHHookReturnTrue];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [self batchPatchWithType:DHHookReturnFalse];
+        [self chooseFolderThenBatch: DHHookReturnFalse];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为空拦截 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        [self batchPatchWithType:DHHookReturnVoid];
+        [self chooseFolderThenBatch: DHHookReturnVoid];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)batchPatchWithType:(DHHookReturnType)type {
+- (void)chooseFolderThenBatch:(DHHookReturnType)type {
+    UIAlertController *folderSheet = [UIAlertController alertControllerWithTitle:@"请选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [folderSheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self batchPatchWithType:type folder:nil];
+    }]];
+    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[];
+    for (NSString *f in folders) {
+        [folderSheet addAction:[UIAlertAction actionWithTitle:f style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self batchPatchWithType:type folder:f];
+        }]];
+    }
+    [folderSheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:folderSheet animated:YES completion:nil];
+}
+
+- (void)batchPatchWithType:(DHHookReturnType)type folder:(NSString *)folderName {
     NSInteger added = 0;
     NSMutableArray *toRemove = [NSMutableArray new];
     for (DHScannerResult *r in self.filteredResults) {
@@ -1105,7 +1122,7 @@
         h.selectorName = r.methodName;
         h.isClassMethod = r.isClassMethod;
         h.returnType = type;
-        h.folderName = nil;
+        h.folderName = folderName;
         NSString *sel = r.methodName;
         NSString *realType;
         if ([sel hasPrefix:@"set"]) realType = @"void";
