@@ -1115,6 +1115,7 @@
         }
     }
     for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
+    NSMutableArray *newHooks = [NSMutableArray new];
     for (DHScannerResult *r in self.filteredResults) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         DHHookInfo *h = [DHHookInfo new];
@@ -1123,6 +1124,7 @@
         h.isClassMethod = r.isClassMethod;
         h.returnType = type;
         h.folderName = folderName;
+        h.enabled = YES;
         NSString *sel = r.methodName;
         NSString *realType;
         if ([sel hasPrefix:@"set"]) realType = @"void";
@@ -1131,9 +1133,14 @@
         else realType = r.returnType ?: @"id";
         h.realReturnType = realType;
         h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
-        [[DHHookManager sharedManager] addHook:h];
+        [newHooks addObject:h];
         added++;
     }
+    // 批量添加：直接操作数组，避免逐个save
+    NSMutableArray *arr = [[DHHookManager sharedManager].savedHooks mutableCopy];
+    [arr addObjectsFromArray:newHooks];
+    [DHHookManager sharedManager].savedHooks = arr;
+    [[DHHookManager sharedManager] saveHooks];
     [self showToast:[NSString stringWithFormat:@"批量处理%lu个补丁", (long)added]];
     [self.tableView reloadData];
 }
