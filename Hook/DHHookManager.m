@@ -61,12 +61,7 @@ static NSMutableDictionary *sOriginalIMPs;
 - (void)applyEnabledHooks {
     [self loadHooks];
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
-    NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
     for (DHHookInfo *hook in self.savedHooks) {
-        if (hook.folderName.length > 0) {
-            NSNumber *state = folderStates[hook.folderName];
-            if (state) hook.enabled = [state boolValue];
-        }
         if (hook.enabled) [self applyHook:hook];
     }
 }
@@ -152,6 +147,7 @@ static NSMutableDictionary *sOriginalIMPs;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr addObject:hook];
     self.savedHooks = arr;
+    [self saveHooks];
     [self applyHook:hook];
 }
 
@@ -160,12 +156,14 @@ static NSMutableDictionary *sOriginalIMPs;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr removeObject:hook];
     self.savedHooks = arr;
+    [self saveHooks];
 }
 
 - (void)toggleHook:(DHHookInfo *)hook {
     hook.enabled = !hook.enabled;
     if (hook.enabled) [self applyHook:hook];
     else [self disableHook:hook];
+    [self saveHooks];
 }
 
 - (void)clearAllHooks {

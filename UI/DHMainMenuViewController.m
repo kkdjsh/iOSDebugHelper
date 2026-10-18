@@ -72,10 +72,9 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.currentFolder ?: @"补丁管理";
-    UIBarButtonItem *saveBtn = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(saveAllConfig)];
     UIBarButtonItem *addBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addMenu)];
     UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCompose target:self action:@selector(moreMenu)];
-    self.navigationItem.rightBarButtonItems = @[addBtn, moreBtn, saveBtn];
+    self.navigationItem.rightBarButtonItems = @[addBtn, moreBtn];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
@@ -115,9 +114,7 @@
         c.textLabel.font = [UIFont systemFontOfSize:14];
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         UISwitch *sw = [[UISwitch alloc] init];
-        NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
-        NSNumber *savedState = folderStates[fname];
-        sw.on = savedState ? [savedState boolValue] : anyOn;
+        sw.on = anyOn;
         sw.tag = 9000 + ip.row;
         [sw addTarget:self action:@selector(folderSwitchToggled:) forControlEvents:UIControlEventValueChanged];
         c.accessoryView = sw;
@@ -167,17 +164,12 @@
 
 - (void)folderSwitchToggled:(UISwitch *)sw {
     NSString *fname = [self folderNames][sw.tag - 9000];
-    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+    for (DHHookInfo *h in [self visibleHooks]) {
         if ([h.folderName isEqualToString:fname]) {
             if (sw.on && !h.enabled) [[DHHookManager sharedManager] toggleHook:h];
             else if (!sw.on && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
         }
     }
-    // 持久化文件夹开关状态
-    NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
-    folderStates[fname] = @(sw.on);
-    [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
     [self.tableView reloadData];
 }
 
@@ -185,18 +177,6 @@
     if (!self.currentFolder && ip.section == 0) {
         // 文件夹左滑
         NSString *fname = [self folderNames][ip.row];
-        UITableViewRowAction *enableAll = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"启用全部" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
-            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-                if ([h.folderName isEqualToString:fname] && !h.enabled) [[DHHookManager sharedManager] toggleHook:h];
-            }
-            [self.tableView reloadData];
-        }];
-        UITableViewRowAction *disableAll = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"关闭全部" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
-            for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-                if ([h.folderName isEqualToString:fname] && h.enabled) [[DHHookManager sharedManager] toggleHook:h];
-            }
-            [self.tableView reloadData];
-        }];
         UITableViewRowAction *rename = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal title:@"重命名" handler:^(UITableViewRowAction *a, NSIndexPath *idx) {
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名文件夹" message:nil preferredStyle:UIAlertControllerStyleAlert];
             [alert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.text = fname; }];
@@ -241,7 +221,7 @@
             }]];
             [self presentViewController:confirm animated:YES completion:nil];
         }];
-        return @[del, rename, disableAll, enableAll];
+        return @[del, rename];
     }
 
     // 补丁左滑
@@ -295,7 +275,6 @@
 
 - (void)addMenu {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [a addAction:[UIAlertAction actionWithTitle:@"新建补丁" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) { [self addHook]; }]];
     [a addAction:[UIAlertAction actionWithTitle:@"新建文件夹" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) { [self addFolder]; }]];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
@@ -597,14 +576,6 @@
     [self presentViewController:a animated:YES completion:nil];
 }
 
-- (void)saveAllConfig {
-    [[DHHookManager sharedManager] saveHooks];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:@"配置已安全保存并生效" preferredStyle:UIAlertControllerStyleAlert];
-    [self presentViewController:t animated:YES completion:^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
-    }];
-}
 @end
 
 @interface DHNetworkRuleListVC : UITableViewController
