@@ -662,6 +662,7 @@
     _filterSystemClasses = YES;
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
+        [[UIBarButtonItem alloc] initWithTitle:@"批量补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
     ];
@@ -757,6 +758,17 @@
     c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    // 已存在的补丁高亮绿色
+    NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+    NSMutableSet *existing = [NSMutableSet new];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        [existing addObject:[NSString stringWithFormat:@"%@|%@", h.className, h.selectorName]];
+    }
+    if ([existing containsObject:key]) {
+        c.textLabel.textColor = [UIColor systemGreenColor];
+    } else {
+        c.textLabel.textColor = [UIColor labelColor];
+    }
     return c;
 }
 
@@ -1057,6 +1069,53 @@
     [[DHMonitorManager shared] startWithResults:results];
     [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
     [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)batchPatchMenu {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"批量生成补丁" message:[NSString stringWithFormat:@"当前列表%lu条", (unsigned long)self.filteredResults.count] preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self batchPatchWithType:DHHookReturnTrue];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self batchPatchWithType:DHHookReturnFalse];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为空拦截 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [self batchPatchWithType:DHHookReturnVoid];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)batchPatchWithType:(DHHookReturnType)type {
+    NSInteger added = 0;
+    for (DHScannerResult *r in self.filteredResults) {
+        if ([r.methodName isEqualToString:@"(class)"]) continue;
+        // 去重：类名+方法名
+        BOOL exists = NO;
+        for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+            if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) { exists = YES; break; }
+        }
+        if (exists) continue;
+
+        DHHookInfo *h = [DHHookInfo new];
+        h.className = r.className;
+        h.selectorName = r.methodName;
+        h.isClassMethod = r.isClassMethod;
+        h.returnType = type;
+        h.folderName = nil;
+        NSString *sel = r.methodName;
+        NSString *realType;
+        if ([sel hasPrefix:@"set"]) realType = @"void";
+        else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) realType = @"BOOL";
+        else if ([sel hasPrefix:@"init"]) realType = @"id";
+        else realType = r.returnType ?: @"id";
+        h.realReturnType = realType;
+        h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
+        [[DHHookManager sharedManager] addHook:h];
+        added++;
+    }
+    [self showToast:[NSString stringWithFormat:@"批量添加%lu个补丁", (long)added]];
+    [self.tableView reloadData];
 }
 @end
 
