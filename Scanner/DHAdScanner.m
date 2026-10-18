@@ -33,6 +33,28 @@ static NSString *DHImageNameForClass(Class cls) {
     return [[NSString stringWithUTF8String:name] lastPathComponent];
 }
 
+static NSString *DHBuildFullSignature(Method m, BOOL isClass) {
+    NSString *prefix = isClass ? @"+" : @"-";
+    NSString *ret = DHReturnTypeEncoding(m);
+    SEL sel = method_getName(m);
+    NSString *selName = NSStringFromSelector(sel);
+    NSUInteger argc = [[selName componentsSeparatedByString:@":"] count] - 1;
+    if (argc == 0) {
+        return [NSString stringWithFormat:@"%@ (%@)%@", prefix, ret, selName];
+    }
+    NSArray *parts = [selName componentsSeparatedByString:@":"];
+    NSMutableString *sig = [NSMutableString stringWithFormat:@"%@ (%@)", prefix, ret];
+    NSUInteger argIdx = 1;
+    for (NSUInteger i = 0; i < parts.count; i++) {
+        NSString *part = parts[i];
+        if (part.length == 0) continue;
+        if (argIdx == 1) [sig appendFormat:@"%@:(id)arg%lu", part, (unsigned long)argIdx];
+        else [sig appendFormat:@" %@:(id)arg%lu", part, (unsigned long)argIdx];
+        argIdx++;
+    }
+    return sig;
+}
+
 @implementation DHAdScanner
 
 + (instancetype)sharedScanner {
@@ -201,6 +223,7 @@ static NSString *DHImageNameForClass(Class cls) {
                     r.returnType = DHReturnTypeEncoding(methods[j]);
                     r.imageName = DHImageNameForClass(cls);
                     r.isClassMethod = NO;
+                    r.fullSignature = DHBuildFullSignature(methods[j], NO);
                     [results addObject:r];
                 }
                 free(methods);
@@ -234,6 +257,7 @@ static NSString *DHImageNameForClass(Class cls) {
                     r.returnType = DHReturnTypeEncoding(classMethods[j]);
                     r.imageName = DHImageNameForClass(cls);
                     r.isClassMethod = YES;
+                    r.fullSignature = DHBuildFullSignature(classMethods[j], YES);
                     [results addObject:r];
                 }
                 free(classMethods);

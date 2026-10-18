@@ -692,11 +692,12 @@
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell"];
     if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
     DHScannerResult *r = self.filteredResults[ip.row];
-    NSString *retType = r.returnType ?: @"id";
     if ([r.methodName isEqualToString:@"(class)"]) {
         c.textLabel.text = [NSString stringWithFormat:@"+ (Class)%@", r.className];
+    } else if (r.fullSignature.length) {
+        c.textLabel.text = r.fullSignature;
     } else {
-        c.textLabel.text = [NSString stringWithFormat:@"- (%@)%@", retType, r.methodName];
+        c.textLabel.text = [NSString stringWithFormat:@"%@ (%@)%@", r.isClassMethod ? @"+" : @"-", r.returnType ?: @"id", r.methodName];
     }
     c.textLabel.font = [UIFont systemFontOfSize:12];
     c.textLabel.numberOfLines = 1;
@@ -740,6 +741,9 @@
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"返回自定义字符串..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self promptCustomValue:r isNumber:NO];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回空/拦截 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [self addHook:r returnType:DHHookReturnVoid custom:nil];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
