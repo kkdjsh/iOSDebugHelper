@@ -1259,7 +1259,8 @@
 }
 
 - (void)selectMonitorKeyword {
-    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[];
+    NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
+    NSLog(@"DHMonitor: folders = %@", folders);
     if (folders.count == 0) { [self showToast:@"请先创建词库"]; return; }
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择监控词库" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSDictionary *f in folders) {
@@ -1272,13 +1273,17 @@
                 NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
                 if (t.length) [kws addObject:t];
             }
+            NSLog(@"DHMonitor: starting with keywords = %@", kws);
             [[DHMonitorManager shared] stop];
             [[DHMonitorManager shared] startWithKeywords:kws];
-            [self showToast:[NSString stringWithFormat:@"监控已启动: %@", name]];
+            [self showToast:[NSString stringWithFormat:@"监控已启动: %@ (%lu词)", name, (unsigned long)kws.count]];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
+    // 从最顶层VC弹出
+    UIViewController *top = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+    [top presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)resetAllConfig {
