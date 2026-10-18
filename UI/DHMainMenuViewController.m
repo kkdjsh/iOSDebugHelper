@@ -1048,6 +1048,15 @@
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
     }];
 }
+
+- (void)startMonitorFromScan {
+    NSArray *results = self.filteredResults;
+    if (results.count == 0) { [self showToast:@"当前无筛选结果"]; return; }
+    [[DHMonitorManager shared] stop];
+    [[DHMonitorManager shared] startWithResults:results];
+    [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
 @end
 
 #pragma mark - 主菜单
@@ -1257,17 +1266,6 @@
     } else {
         [[DHMonitorManager shared] stop];
     }
-}
-
-- (void)startMonitorFromScan {
-    NSArray *results = self.filteredResults;
-    if (results.count == 0) { [self showToast:@"当前无筛选结果"]; return; }
-    [[DHMonitorManager shared] stop];
-    [[DHMonitorManager shared] startWithResults:results];
-    [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
-    [self dismissViewControllerAnimated:YES completion:^{
-        [self showMonitor];
-    }];
 }
 
 - (void)resetAllConfig {
