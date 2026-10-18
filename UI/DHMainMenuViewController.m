@@ -72,9 +72,10 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.currentFolder ?: @"补丁管理";
+    UIBarButtonItem *saveBtn = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(saveAllConfig)];
     UIBarButtonItem *addBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addMenu)];
     UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCompose target:self action:@selector(moreMenu)];
-    self.navigationItem.rightBarButtonItems = @[addBtn, moreBtn];
+    self.navigationItem.rightBarButtonItems = @[addBtn, moreBtn, saveBtn];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
@@ -588,9 +589,16 @@
     }]];
     [self presentViewController:a animated:YES completion:nil];
 }
-@end
 
-#pragma mark - 网络规则控制器
+- (void)saveAllConfig {
+    [[DHHookManager sharedManager] saveHooks];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:@"配置已安全保存并生效" preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:t animated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
+    }];
+}
+@end
 @interface DHNetworkRuleListVC : UITableViewController
 @end
 @implementation DHNetworkRuleListVC

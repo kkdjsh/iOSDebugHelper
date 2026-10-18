@@ -60,30 +60,6 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)applyEnabledHooks {
     [self loadHooks];
-
-    // === 启动安全快照机制 ===
-    BOOL isBooting = [[NSUserDefaults standardUserDefaults] boolForKey:@"DHBootInProgress"];
-    if (isBooting) {
-        // 上次启动闪退了，回滚：关闭所有开启的hook和文件夹
-        for (DHHookInfo *h in self.savedHooks) h.enabled = NO;
-        NSMutableDictionary *folderStates = [NSMutableDictionary new];
-        NSArray *folders = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPatchFolders"] ?: @[];
-        for (NSString *f in folders) folderStates[f] = @(NO);
-        [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
-        [self saveHooks];
-        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"DHBootInProgress"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            UIAlertController *a = [UIAlertController alertControllerWithTitle:@"安全保护" message:@"检测到上次启动加载配置发生异常，已自动回滚到安全配置" preferredStyle:UIAlertControllerStyleAlert];
-            [a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
-            [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
-        });
-    } else {
-        // 正常启动，写入booting标记
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"DHBootInProgress"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-    }
-
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
     NSDictionary *folderStates = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"];
     for (DHHookInfo *hook in self.savedHooks) {
@@ -93,13 +69,6 @@ static NSMutableDictionary *sOriginalIMPs;
         }
         if (hook.enabled) [self applyHook:hook];
     }
-    [self saveHooks];
-
-    // 5秒后清除booting标记
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"DHBootInProgress"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-    });
 }
 
 - (void)applyHook:(DHHookInfo *)hook {
@@ -183,7 +152,6 @@ static NSMutableDictionary *sOriginalIMPs;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr addObject:hook];
     self.savedHooks = arr;
-    [self saveHooks];
     [self applyHook:hook];
 }
 
@@ -192,14 +160,12 @@ static NSMutableDictionary *sOriginalIMPs;
     NSMutableArray *arr = [self.savedHooks mutableCopy];
     [arr removeObject:hook];
     self.savedHooks = arr;
-    [self saveHooks];
 }
 
 - (void)toggleHook:(DHHookInfo *)hook {
     hook.enabled = !hook.enabled;
     if (hook.enabled) [self applyHook:hook];
     else [self disableHook:hook];
-    [self saveHooks];
 }
 
 - (void)clearAllHooks {
