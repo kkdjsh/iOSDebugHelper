@@ -234,6 +234,8 @@
                 NSMutableDictionary *folderStates = [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"DHFolderSwitchStates"] mutableCopy] ?: [NSMutableDictionary new];
                 [folderStates removeObjectForKey:fname];
                 [[NSUserDefaults standardUserDefaults] setObject:folderStates forKey:@"DHFolderSwitchStates"];
+                // 删除操作立即保存到磁盘
+                [[DHHookManager sharedManager] saveHooks];
                 [[NSUserDefaults standardUserDefaults] synchronize];
                 [self.tableView reloadData];
             }]];
