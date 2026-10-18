@@ -34,6 +34,8 @@ static NSMutableDictionary *sOriginalIMPs;
 }
 
 - (void)loadHooks {
+    if (!_savedHooks) _savedHooks = @[];
+    if (!_savedPatches) _savedPatches = @[];
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedHooksKey];
     if (data) {
         @try {
@@ -144,7 +146,7 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)addHook:(DHHookInfo *)hook {
     hook.enabled = YES;
-    NSMutableArray *arr = [self.savedHooks mutableCopy];
+    NSMutableArray *arr = [self.savedHooks mutableCopy] ?: [NSMutableArray new];
     [arr addObject:hook];
     self.savedHooks = arr;
     [self saveHooks];
@@ -153,7 +155,7 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)removeHook:(DHHookInfo *)hook {
     [self disableHook:hook];
-    NSMutableArray *arr = [self.savedHooks mutableCopy];
+    NSMutableArray *arr = [self.savedHooks mutableCopy] ?: [NSMutableArray new];
     [arr removeObject:hook];
     self.savedHooks = arr;
     [self saveHooks];
