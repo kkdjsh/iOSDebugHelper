@@ -28,6 +28,8 @@ typedef NS_ENUM(NSInteger, DHHookReturnType) {
 @property (nonatomic, copy)   NSString *reason;  // 用途说明
 @property (nonatomic, assign) BOOL enabled;       // 是否启用
 @property (nonatomic, copy, nullable) NSString *folderName; // 所属文件夹
+@property (nonatomic, copy)   NSString *realReturnType; // 真实返回类型如 BOOL, NSInteger, id
+@property (nonatomic, assign) NSUInteger argCount;       // 参数个数
 @end
 
 NS_ASSUME_NONNULL_END
