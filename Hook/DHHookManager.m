@@ -244,7 +244,7 @@ static NSMutableDictionary *sOriginalIMPs;
                 case DHHookReturnZero:  [code appendString:@"    return 0;\n"]; break;
                 case DHHookReturnCustomString: [code appendFormat:@"    return @\"%@\";\n", h.customValue ?: @""]; break;
                 case DHHookReturnCustomNumber: [code appendFormat:@"    return %@;\n", h.customValue ?: @(0)]; break;
-                case DHHookReturnVoid:  [code appendString:@"    // 拦截，不调用原方法\n    return;\n"]; break;
+                case DHHookReturnVoid:  break;
                 default: [code appendString:@"    return %orig;\n"]; break;
             }
             [code appendString:@"}\n"];
