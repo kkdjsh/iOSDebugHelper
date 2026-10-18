@@ -835,7 +835,14 @@
     h.returnType = type;
     h.customValue = custom;
     h.folderName = folder;
-    h.realReturnType = r.returnType ?: @"id";
+    // 源头推断真实返回类型
+    NSString *sel = selName;
+    NSString *realType;
+    if ([sel hasPrefix:@"set"]) realType = @"void";
+    else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) realType = @"BOOL";
+    else if ([sel hasPrefix:@"init"]) realType = @"id";
+    else realType = r.returnType ?: @"id";
+    h.realReturnType = realType;
     h.argCount = [[selName componentsSeparatedByString:@":"] count] - 1;
     [[DHHookManager sharedManager] addHook:h];
     NSString *loc = folder ?: @"根目录";
