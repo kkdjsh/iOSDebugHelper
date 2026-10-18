@@ -34,9 +34,19 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)loadHooks {
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedHooksKey];
-    if (data) self.savedHooks = [NSKeyedUnarchiver unarchiveObjectWithData:data] ?: @[];
+    if (data) {
+        @try {
+            NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+            if (loaded) self.savedHooks = loaded;
+        } @catch (NSException *e) {}
+    }
     NSData *pdata = [[NSUserDefaults standardUserDefaults] dataForKey:kDHSavedPatchesKey];
-    if (pdata) self.savedPatches = [NSKeyedUnarchiver unarchiveObjectWithData:pdata] ?: @[];
+    if (pdata) {
+        @try {
+            NSArray *loaded = [NSKeyedUnarchiver unarchiveObjectWithData:pdata];
+            if (loaded) self.savedPatches = loaded;
+        } @catch (NSException *e) {}
+    }
 }
 
 - (void)saveHooks {
@@ -49,12 +59,31 @@ static NSMutableDictionary *sOriginalIMPs;
 
 - (void)applyEnabledHooks {
     [self loadHooks];
+    // 检查是否有未完成的5秒测试
+    NSArray *pendingKeys = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPendingTestKeys"];
+    if (pendingKeys.count > 0) {
+        // 上次闪退了，撤销这些补丁
+        NSMutableArray *filtered = [NSMutableArray new];
+        for (DHHookInfo *h in self.savedHooks) {
+            NSString *k = [NSString stringWithFormat:@"%@|%@", h.className, h.selectorName];
+            if ([pendingKeys containsObject:k]) {
+                h.enabled = NO;
+            }
+            [filtered addObject:h];
+        }
+        self.savedHooks = filtered;
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingTestKeys"];
+        [self saveHooks];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIAlertController *a = [UIAlertController alertControllerWithTitle:@"安全保护" message:@"检测到上次新增补丁导致闪退，已自动关闭相关补丁" preferredStyle:UIAlertControllerStyleAlert];
+            [a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+            [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
+        });
+    }
     DHLogInfo(@"HookManager: 开始应用 %lu 个 Hook", (unsigned long)self.savedHooks.count);
     for (DHHookInfo *hook in self.savedHooks) {
-        hook.enabled = YES; // 默认全部开启
-        [self applyHook:hook];
+        if (hook.enabled) [self applyHook:hook];
     }
-    [self saveHooks];
 }
 
 - (void)applyHook:(DHHookInfo *)hook {
@@ -140,6 +169,18 @@ static NSMutableDictionary *sOriginalIMPs;
     self.savedHooks = arr;
     [self saveHooks];
     [self applyHook:hook];
+    // 5秒生存测试
+    NSString *key = [NSString stringWithFormat:@"%@|%@", hook.className, hook.selectorName];
+    NSMutableArray *pending = [[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPendingTestKeys"] mutableCopy] ?: [NSMutableArray new];
+    [pending addObject:key];
+    [[NSUserDefaults standardUserDefaults] setObject:pending forKey:@"DHPendingTestKeys"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSMutableArray *p = [[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHPendingTestKeys"] mutableCopy] ?: [NSMutableArray new];
+        [p removeObject:key];
+        [[NSUserDefaults standardUserDefaults] setObject:p forKey:@"DHPendingTestKeys"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    });
 }
 
 - (void)removeHook:(DHHookInfo *)hook {
