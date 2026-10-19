@@ -1038,11 +1038,10 @@
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
                 // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
-                // 过滤系统类
+                // 过滤系统类：按imageName判断，系统框架路径的全过滤
                 if (fSys) {
-                    NSString *cn = r.className;
-                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
-                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
+                    NSString *img = r.imageName ?: @"";
+                    if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
                 }
                 // 仅看BOOL方法
                 if (fBool) {
@@ -1126,25 +1125,42 @@
 }
 
 - (void)chooseFolderThenBatch:(DHHookReturnType)type {
+    // 先问数量
+    UIAlertController *countAlert = [UIAlertController alertControllerWithTitle:@"批量补丁数量" message:[NSString stringWithFormat:@"当前共%lu条\n输入要HOOK前多少条？(留空=全部)", (unsigned long)self.filteredResults.count] preferredStyle:UIAlertControllerStyleAlert];
+    [countAlert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"如 20"; f.keyboardType = UIKeyboardTypeNumberPad; }];
+    [countAlert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [countAlert addAction:[UIAlertAction actionWithTitle:@"下一步" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        NSInteger limit = 0;
+        NSString *txt = countAlert.textFields[0].text;
+        if (txt.length) limit = txt.integerValue;
+        [self presentFolderSheetForBatch:type limit:limit];
+    }]];
+    [self presentViewController:countAlert animated:YES completion:nil];
+}
+
+- (void)presentFolderSheetForBatch:(DHHookReturnType)type limit:(NSInteger)limit {
     UIAlertController *folderSheet = [UIAlertController alertControllerWithTitle:@"请选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [folderSheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [self batchPatchWithType:type folder:nil];
+        [self batchPatchWithType:type folder:nil limit:limit];
     }]];
     NSArray *folders = [DHPatchListVC dhLoadFolders];
     for (NSString *f in folders) {
         [folderSheet addAction:[UIAlertAction actionWithTitle:f style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            [self batchPatchWithType:type folder:f];
+            [self batchPatchWithType:type folder:f limit:limit];
         }]];
     }
     [folderSheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:folderSheet animated:YES completion:nil];
 }
 
-- (void)batchPatchWithType:(DHHookReturnType)type folder:(NSString *)folderName {
+- (void)batchPatchWithType:(DHHookReturnType)type folder:(NSString *)folderName limit:(NSInteger)limit {
     NSInteger added = 0;
     NSMutableArray *toRemove = [NSMutableArray new];
+    NSInteger processed = 0;
     for (DHScannerResult *r in self.filteredResults) {
+        if (limit > 0 && processed >= limit) break;
         if ([r.methodName isEqualToString:@"(class)"]) continue;
+        processed++;
         for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
             if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) {
                 [toRemove addObject:h];
@@ -1154,18 +1170,13 @@
     }
     for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
     NSMutableArray *newHooks = [NSMutableArray new];
+    NSInteger addedCount = 0;
     for (DHScannerResult *r in self.filteredResults) {
+        if (limit > 0 && addedCount >= limit) break;
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         // 跳过系统类，防止hook系统方法闪退
-        NSString *cn = r.className;
-        if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
-            [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"] ||
-            [cn hasPrefix:@"AV"] || [cn hasPrefix:@"WK"] || [cn hasPrefix:@"CG"] ||
-            [cn hasPrefix:@"CI"] || [cn hasPrefix:@"CT"] || [cn hasPrefix:@"OS_"] ||
-            [cn hasPrefix:@"CX"] || [cn hasPrefix:@"MK"] || [cn hasPrefix:@"CL"] ||
-            [cn hasPrefix:@"CN"] || [cn hasPrefix:@"LS"] || [cn hasPrefix:@"CSS"] ||
-            [cn hasPrefix:@"QL"] || [cn hasPrefix:@"TI"] || [cn hasPrefix:@"IM"] ||
-            [cn hasPrefix:@"CK"] || [cn hasPrefix:@"GK"] || [cn hasPrefix:@"GK"]) continue;
+        NSString *img = r.imageName ?: @"";
+        if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;
@@ -1183,6 +1194,7 @@
         h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
         [newHooks addObject:h];
         added++;
+        addedCount++;
     }
     // 批量添加：直接操作数组，避免逐个save
     NSMutableArray *arr = [[DHHookManager sharedManager].savedHooks mutableCopy];
