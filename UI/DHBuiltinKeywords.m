@@ -139,14 +139,23 @@
 
 + (void)ensureSeeded {
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    if ([ud boolForKey:@"DHBuiltinKeywordsSeeded_v2"]) return;
-    NSArray *existing = [ud arrayForKey:@"DHKeywordFolders"];
+    if ([ud boolForKey:@"DHBuiltinKeywordsSeeded_v3"]) return;
+    // 清除旧版内置词库（避免重名冲突）
     NSMutableArray *all = [NSMutableArray new];
-    if (existing) [all addObjectsFromArray:existing];
-    [all addObjectsFromArray:[self defaultFolders]];
-    [all addObjectsFromArray:[self normalFolders]];
+    // 正则版加[正则]前缀
+    for (NSDictionary *d in [self defaultFolders]) {
+        NSMutableDictionary *m = [d mutableCopy];
+        m[@"name"] = [NSString stringWithFormat:@"[正则]%@", d[@"name"]];
+        [all addObject:m];
+    }
+    // 普通版加[词库]前缀
+    for (NSDictionary *d in [self normalFolders]) {
+        NSMutableDictionary *m = [d mutableCopy];
+        m[@"name"] = [NSString stringWithFormat:@"[词库]%@", d[@"name"]];
+        [all addObject:m];
+    }
     [ud setObject:all forKey:@"DHKeywordFolders"];
-    [ud setBool:YES forKey:@"DHBuiltinKeywordsSeeded_v2"];
+    [ud setBool:YES forKey:@"DHBuiltinKeywordsSeeded_v3"];
     [ud synchronize];
 }
 
