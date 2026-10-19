@@ -1038,10 +1038,11 @@
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
                 // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
-                // 过滤系统类：/System/Library/ 和 /usr/lib/ 全过滤，保留App和内嵌SDK
+                // 过滤系统类
                 if (fSys) {
-                    NSString *img = r.imageName ?: @"";
-                    if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
+                    NSString *cn = r.className;
+                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
                 }
                 // 仅看BOOL方法
                 if (fBool) {
@@ -1174,9 +1175,10 @@
     for (DHScannerResult *r in self.filteredResults) {
         if (limit > 0 && addedCount >= limit) break;
         if ([r.methodName isEqualToString:@"(class)"]) continue;
-        // 跳过系统类，保留App和内嵌SDK
-        NSString *img = r.imageName ?: @"";
-        if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
+        // 跳过系统类，防止hook系统方法闪退
+        NSString *cn = r.className;
+        if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+            [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;

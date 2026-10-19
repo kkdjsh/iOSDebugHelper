@@ -119,7 +119,7 @@ static NSString *DHArgumentTypeAtIndex(Method m, NSUInteger argIndex) {
 static NSString *DHImageNameForClass(Class cls) {
     const char *name = class_getImageName(cls);
     if (!name) return @"";
-    return [NSString stringWithUTF8String:name];
+    return [[NSString stringWithUTF8String:name] lastPathComponent];
 }
 
 static NSString *DHBuildFullSignature(Method m, BOOL isClass) {

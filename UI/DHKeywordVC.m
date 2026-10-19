@@ -13,19 +13,38 @@
 @end
 
 #pragma mark - 文件夹列表
+@interface DHKeywordFolderVC () <UISearchBarDelegate>
+@property (nonatomic, strong) UISearchBar *searchBar;
+@property (nonatomic, strong) NSMutableArray *filtered;
+@end
+
 @implementation DHKeywordFolderVC
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"关键词词库";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addFolder)];
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"kf"];
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
+    self.searchBar.placeholder = @"搜索词库名...";
+    self.searchBar.delegate = self;
+    self.tableView.tableHeaderView = self.searchBar;
+    self.filtered = [NSMutableArray new];
 }
 - (NSMutableArray *)folders {
     NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
     return saved ? [saved mutableCopy] : [NSMutableArray new];
 }
 - (void)save:(NSMutableArray *)f { [[NSUserDefaults standardUserDefaults] setObject:f forKey:@"DHKeywordFolders"]; [[NSUserDefaults standardUserDefaults] synchronize]; }
-- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self doFilter]; [self.tableView reloadData]; }
+- (void)doFilter {
+    NSString *q = self.searchBar.text.lowercaseString;
+    if (!q.length) { self.filtered = [[self folders] mutableCopy]; return; }
+    self.filtered = [NSMutableArray new];
+    for (NSDictionary *e in [self folders]) {
+        if ([e[@"name"].lowercaseString containsString:q]) [self.filtered addObject:e];
+    }
+}
+- (void)searchBar:(UISearchBar *)s textDidChange:(NSString *)t { [self doFilter]; [self.tableView reloadData]; }
 - (void)addFolder {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"词库名，如：广告拦截"; }];
@@ -36,45 +55,58 @@
         NSMutableArray *f = [self folders];
         for (NSDictionary *e in f) { if ([e[@"name"] isEqualToString:name]) { [self toast:@"名字已存在"]; return; } }
         [f addObject:[@{@"name":name, @"content":@""} mutableCopy]];
-        [self save:f]; [self.tableView reloadData];
+        [self save:f]; [self doFilter]; [self.tableView reloadData];
     }]];
     [self presentViewController:a animated:YES completion:nil];
 }
-- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return [self folders].count; }
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.filtered.count; }
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"kf" forIndexPath:ip];
-    c.textLabel.text = [self folders][ip.row][@"name"];
+    c.textLabel.text = self.filtered[ip.row][@"name"];
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return c;
 }
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     DHKeywordEditVC *vc = [DHKeywordEditVC new];
     vc.folders = [self folders];
-    vc.idx = ip.row;
+    // find real index
+    NSString *name = self.filtered[ip.row][@"name"];
+    NSInteger realIdx = 0;
+    for (NSInteger i = 0; i < [self folders].count; i++) {
+        if ([self folders][i][@"name"] isEqualToString:name]) { realIdx = i; break; }
+    }
+    vc.idx = realIdx;
     [self.navigationController pushViewController:vc animated:YES];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)t trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)ip {
     UIContextualAction *rename = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"重命名" handler:^(UIContextualAction *a, UIView *v, void(^d)(BOOL)) {
         d(YES);
+        NSString *name = self.filtered[ip.row][@"name"];
+        NSMutableArray *f = [self folders];
+        NSInteger realIdx = 0;
+        for (NSInteger i = 0; i < f.count; i++) { if ([f[i][@"name"] isEqualToString:name]) { realIdx = i; break; } }
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名词库" message:nil preferredStyle:UIAlertControllerStyleAlert];
-        [alert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.text = self.folders[ip.row][@"name"]; }];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.text = f[realIdx][@"name"]; }];
         [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
         [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-            NSString *name = alert.textFields[0].text;
-            if (!name.length) return;
-            NSMutableArray *f = [self folders];
-            NSMutableDictionary *item = [f[ip.row] mutableCopy];
-            item[@"name"] = name;
-            f[ip.row] = item;
-            [self save:f]; [self.tableView reloadData];
+            NSString *newName = alert.textFields[0].text;
+            if (!newName.length) return;
+            NSMutableDictionary *item = [f[realIdx] mutableCopy];
+            item[@"name"] = newName;
+            f[realIdx] = item;
+            [self save:f]; [self doFilter]; [self.tableView reloadData];
         }]];
         [self presentViewController:alert animated:YES completion:nil];
     }];
     rename.backgroundColor = [UIColor systemBlueColor];
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(UIContextualAction *a, UIView *v, void(^d)(BOOL)) {
+        NSString *name = self.filtered[ip.row][@"name"];
         NSMutableArray *f = [self folders];
-        [f removeObjectAtIndex:ip.row];
+        NSInteger realIdx = 0;
+        for (NSInteger i = 0; i < f.count; i++) { if ([f[i][@"name"] isEqualToString:name]) { realIdx = i; break; } }
+        [f removeObjectAtIndex:realIdx];
         [self save:f]; d(YES);
+        [self doFilter]; [self.tableView reloadData];
     }];
     return [UISwipeActionsConfiguration configurationWithActions:@[del, rename]];
 }
