@@ -1038,10 +1038,28 @@
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
                 // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
-                // 过滤系统类：按imageName判断，系统框架路径的全过滤
+                // 过滤系统类：按imageName判断
                 if (fSys) {
                     NSString *img = r.imageName ?: @"";
-                    if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
+                    if ([img hasSuffix:@".dylib"] ||
+                        [img containsString:@"UIKit"] || [img containsString:@"Foundation"] ||
+                        [img containsString:@"CoreGraphics"] || [img containsString:@"QuartzCore"] ||
+                        [img containsString:@"CoreFoundation"] || [img containsString:@"CFNetwork"] ||
+                        [img containsString:@"Security"] || [img containsString:@"JavaScriptCore"] ||
+                        [img containsString:@"AVFoundation"] || [img containsString:@"MediaPlayer"] ||
+                        [img containsString:@"WebKit"] || [img containsString:@"CoreText"] ||
+                        [img containsString:@"CoreImage"] || [img containsString:@"ImageIO"] ||
+                        [img containsString:@"MobileCoreServices"] || [img containsString:@"SystemConfiguration"] ||
+                        [img containsString:@"CoreTelephony"] || [img containsString:@"AddressBook"] ||
+                        [img containsString:@"EventKit"] || [img containsString:@"Accounts"] ||
+                        [img containsString:@"Social"] || [img containsString:@"StoreKit"] ||
+                        [img containsString:@"MessageUI"] || [img containsString:@"Contacts"] ||
+                        [img containsString:@"Photos"] || [img containsString:@"PhotosUI"] ||
+                        [img containsString:@"MapKit"] || [img containsString:@"CoreLocation"] ||
+                        [img containsString:@"GameKit"] || [img containsString:@"GLKit"] ||
+                        [img containsString:@"SceneKit"] || [img containsString:@"SpriteKit"] ||
+                        [img containsString:@"CoreAnimation"] || [img containsString:@"libobjc"] ||
+                        [img containsString:@"libsystem"] || [img containsString:@"dyld"]) continue;
                 }
                 // 仅看BOOL方法
                 if (fBool) {
@@ -1176,7 +1194,11 @@
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         // 跳过系统类，防止hook系统方法闪退
         NSString *img = r.imageName ?: @"";
-        if ([img containsString:@"/System/Library/"] || [img containsString:@"/usr/lib/"]) continue;
+        if ([img hasSuffix:@".dylib"] ||
+            [img containsString:@"UIKit"] || [img containsString:@"Foundation"] ||
+            [img containsString:@"CoreGraphics"] || [img containsString:@"QuartzCore"] ||
+            [img containsString:@"AVFoundation"] || [img containsString:@"WebKit"] ||
+            [img containsString:@"JavaScriptCore"] || [img containsString:@"Security"]) continue;
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;
