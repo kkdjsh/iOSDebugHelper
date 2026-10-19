@@ -41,7 +41,7 @@
     if (!q.length) { self.filtered = [[self folders] mutableCopy]; return; }
     self.filtered = [NSMutableArray new];
     for (NSDictionary *e in [self folders]) {
-        if ([(NSString *)e[@"name"] localizedLowercaseString] containsString:q]) [self.filtered addObject:e];
+        if ([[(NSString *)e[@"name"] lowercaseString] containsString:q]) [self.filtered addObject:e];
     }
 }
 - (void)searchBar:(UISearchBar *)s textDidChange:(NSString *)t { [self doFilter]; [self.tableView reloadData]; }
