@@ -8,9 +8,11 @@
 #import "DHCryptManager.h"
 #import "DHButtonManager.h"
 #import "DHAdScanner.h"
+#import "DHBuiltinKeywords.h"
 
 static void DHInitializeDebugHelper(void) {
     @autoreleasepool {
+        [DHBuiltinKeywords ensureSeeded];
         [DHLogManager sharedManager].logLevel = DHLogLevelDebug;
         DHLogInfo(@"iOSDebugHelper v1.0.0 启动中...");
 

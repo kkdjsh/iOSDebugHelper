@@ -95,7 +95,16 @@
     UIBarButtonItem *saveBtn = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
     _regexSwitch = [[UISwitch alloc] init];
     _regexSwitch.on = [self.folders[self.idx][@"isRegex"] boolValue];
-    UIBarButtonItem *regexBtn = [[UIBarButtonItem alloc] initWithCustomView:_regexSwitch];
+    UILabel *rl = [[UILabel alloc] init];
+    rl.text = @"正则";
+    rl.font = [UIFont systemFontOfSize:12];
+    [rl sizeToFit];
+    UIView *rg = [[UIView alloc] initWithFrame:CGRectMake(0, 0, rl.frame.size.width+8+_regexSwitch.frame.size.width, 31)];
+    rl.frame = CGRectMake(0, 0, rl.frame.size.width, 31);
+    _regexSwitch.frame = CGRectMake(rl.frame.size.width+8, 0, _regexSwitch.frame.size.width, 31);
+    [rg addSubview:rl];
+    [rg addSubview:_regexSwitch];
+    UIBarButtonItem *regexBtn = [[UIBarButtonItem alloc] initWithCustomView:rg];
     self.navigationItem.rightBarButtonItems = @[saveBtn, regexBtn];
     self.tv = [[UITextView alloc] initWithFrame:self.view.bounds];
     self.tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;

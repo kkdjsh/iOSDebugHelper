@@ -1,0 +1,97 @@
+//
+//  DHBuiltinKeywords.m
+//  iOSDebugHelper
+//
+
+#import "DHBuiltinKeywords.h"
+
+@implementation DHBuiltinKeywords
+
++ (NSArray<NSDictionary *> *)defaultFolders {
+    return @[
+        @{@"name": @"会员身份/等级", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel).*(vip|svip|pro|premium|member|membership|subscriber|sub|paid|tier|plan|level|role|badge|identity|account|user|license|entitlement|benefit|privilege).*"},
+        @{@"name": @"订阅/付费/购买", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel).*(pay|payment|paid|purchase|buy|checkout|billing|invoice|order|receipt|tax|sub|subscribe|subscription|member|vip|pro|premium|plan|tier|trial|license|quota|credit|wallet|balance|coupon|discount|refund|entitlement|benefit|privilege|auto[ _-]?renew|cancel[ _-]?at[ _-]?period[ _-]?end|grace[ _-]?period).*"},
+        @{@"name": @"权益/特权/授权", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel).*(license|licence|entitlement|benefit|benefits|privilege|privileges|permission|permissions|role|roles|scope|scopes|quota|seat|feature|feature[ _-]?flag|capability|access|grant|revoke|member|vip|pro|premium|exclusive|early[ _-]?access|beta).*"},
+        @{@"name": @"功能门禁/能力开关", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel).*(feature|feature[ _-]?flag|flag|toggle|switch|gate|capability|access|permission|permission[ _-]?check|check[ _-]?access|can[ _-]?use|is[ _-]?allowed|entitlement|benefit|privilege|limit|quota|paywall|unlock|premium|pro|vip|member).*"},
+        @{@"name": @"广告展示/加载/请求", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|get|set|show|hide|remove|block|skip|close|dismiss|filter|avoid|fetch|load|request|create|update|delete|query|report|detect|monitor|track|start|stop).*(ad|ads|advert|adverts|advertisement|advertisements|advertising|adslot|adunit|adrequest|adload|adshow|adhide|adclose|adskip|banner|popup|pop-up|pop\\s?up|modal|dialog|interstitial|splash|overlay|floating|sticky|rewarded|reward|preroll|pre-roll|midroll|mid-roll|postroll|post-roll|sponsor|sponsored|promotion|promo|paywall|commercial|campaign).*"},
+        @{@"name": @"去广告/广告拦截", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|no|without|free|remove|hide|block|skip|close|dismiss|disable|filter|avoid|allow|enable|get|set|show|request).*(adblock|adblocker|ad-free|adfree|no-?ads?|removeads|blockads|hideads|skipads|closeads|filterads|avoidads|ad|ads|advert|advertisement|advertising|banner|popup|pop-up|pop\\s?up|modal|interstitial|splash|overlay|floating|sticky|rewarded|preroll|midroll|postroll|sponsor|promotion|promo|paywall|commercial).*"},
+        @{@"name": @"弹窗/开屏/插屏", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|show|display|allow|enable|disable|hide|remove|delete|block|skip|close|dismiss|filter|avoid|get|set|load|request|create|update|delete|query|monitor|track).*(popup|pop-up|pop\\s?up|modal|dialog|dialogue|interstitial|splash|overlay|floating|sticky|rewarded|reward|preroll|pre-roll|midroll|mid-roll|postroll|post-roll|banner|adslot|adunit).*"},
+        @{@"name": @"广告追踪/归因", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|get|set|show|hide|remove|block|filter|load|request|create|update|delete|query|report|detect|monitor|track|start|stop|allow|enable|disable).*(tracker|tracking|attribution|conversion|impression|click|targeting|remarketing|retargeting|affiliate|campaign|marketing|promotion|promo|sponsor|sponsored|commercial|paywall|native|feed|video|rewarded|adrequest|adload|adshow|adclick|adimpression|adconversion).*"},
+        @{@"name": @"评价/差评/投诉", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|report|complain|rate|review|detect|filter|hide|block|remove|delete|show|display|get|set|create|update|query|monitor|track|allow|enable|disable).*(review|reviews|rating|ratings|rate|star|stars|score|feedback|complaint|complaints|report|reports|dislike|negative|bad|low|one[ _-]?star|1[ _-]?star|comment|comments|blacklist|blocklist|spam|abuse|fraud).*"},
+        @{@"name": @"限制/额度/过期", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|limit|exceed|reach|require|verify|get|set|show|hide|remove|block|allow|enable|disable|create|update|delete|query|report|detect|filter|monitor|track|start|stop).*(limit|quota|expire|expiration|expiry|usage|count|times|daily|monthly|annual|seat|concurrency|device|api|credit|balance|trial|grace[ _-]?period|rate[ _-]?limit|api[ _-]?limit|seat[ _-]?limit|device[ _-]?limit).*"},
+        @{@"name": @"试用/升级/退款", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|try|start|renew|upgrade|refund|cancel|get|set|show|hide|remove|block|allow|enable|disable|require|verify|validate|create|update|delete|query|report|monitor|track).*(trial|free[ _-]?trial|trial[ _-]?end|free|upgrade|renew|renewal|refund|cancel|plan|subscription|member|vip|pro|premium|auto[ _-]?renew|cancel[ _-]?at[ _-]?period[ _-]?end|grace[ _-]?period).*"},
+        @{@"name": @"订单/账单/支付", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|pay|buy|purchase|refund|cancel|create|query|verify|validate|get|set|show|hide|remove|block|allow|enable|disable|require|update|delete|report|monitor|track).*(order|billing|invoice|receipt|payment|pay|checkout|refund|cancel|coupon|discount|credit|wallet|balance|tax|transaction|charge|price|amount).*"},
+        @{@"name": @"下载/高清/水印", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|upgrade).*(download|export|import|offline|sync|backup|storage|hd|uhd|4k|1080p|720p|quality|watermark|no[ _-]?watermark|remove[ _-]?watermark|batch|bulk|file|pdf|image|video|audio).*"},
+        @{@"name": @"团队/企业/席位", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|create|update|delete|query|report|monitor|track|invite|join|leave|manage).*(team|teams|enterprise|business|family|student|education|edu|seat|seats|member|members|invite|role|roles|admin|owner|organization|org|workspace|group|sso|sla).*"},
+        @{@"name": @"API/速率限制", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|limit|exceed|reach|require|verify|get|set|show|hide|remove|block|allow|enable|disable|create|update|delete|query|report|detect|filter|monitor|track|start|stop).*(api|api[ _-]?key|api[ _-]?limit|rate[ _-]?limit|rate|quota|concurrency|concurrent|device|devices|seat|seat[ _-]?limit|device[ _-]?limit|usage|request|requests|token|tokens|throttle|throttling).*"},
+        @{@"name": @"积分/优惠券/钱包", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|pay|buy|purchase|refund|cancel|get|set|show|hide|remove|block|allow|enable|disable|require|verify|validate|create|update|delete|query|report|monitor|track|use|redeem|apply).*(point|points|credit|credits|wallet|balance|coupon|coupons|discount|promo[ _-]?code|voucher|reward|rewards|gift|birthday|cash|coin|coins|redeem|refund).*"},
+        @{@"name": @"内容付费/课程", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|monitor|track|start|stop|try|buy|purchase|subscribe|upgrade).*(course|lesson|template|templates|plugin|plugins|integration|automation|analytics|custom[ _-]?domain|exclusive|early[ _-]?access|beta|content|premium[ _-]?content|paid[ _-]?content|download|export).*"},
+        @{@"name": @"客服/优先支持", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|unlock|access|use|create|update|delete|query|report|monitor|track|request|open|close|assign|escalate).*(support|priority|priority[ _-]?support|sla|ticket|tickets|help|helpdesk|chat|live[ _-]?chat|email|phone|dedicated|exclusive|account[ _-]?manager|customer|service|escalation).*"},
+        @{@"name": @"通知/推送/活动", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|filter|load|request|create|update|delete|query|report|detect|monitor|track|start|stop|send|push|schedule|trigger).*(notification|notifications|push|email|sms|message|marketing|campaign|promotion|promo|activity|event|trigger|segment|audience|newsletter|subscribe|unsubscribe|opt[ _-]?in|opt[ _-]?out).*"},
+        @{@"name": @"风控/黑名单/欺诈", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|get|set|show|hide|remove|block|filter|detect|report|monitor|track|allow|enable|disable|create|update|delete|query).*(risk|fraud|abuse|spam|blacklist|blocklist|whitelist|allowlist|ban|banned|block|blocked|suspend|suspended|limit|rate[ _-]?limit|captcha|verification|identity|kyc|aml|chargeback|dispute).*"},
+        @{@"name": @"账号/登录/认证", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|allow|enable|disable|get|set|show|hide|remove|block|create|update|delete|query|report|detect|filter|monitor|track|start|stop|login|logout|signin|signup|register|auth|authenticate|authorize).*(account|user|username|email|phone|password|passcode|otp|code|captcha|verification|verify|auth|authentication|authorization|session|token|refresh[ _-]?token|access[ _-]?token|login|logout|signin|signup|register|registration|reset[ _-]?password|forgot[ _-]?password|bind|unbind|link|unlink).*"},
+        @{@"name": @"安全/MFA/2FA", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|allow|enable|disable|get|set|show|hide|remove|block|create|update|delete|query|report|detect|filter|monitor|track|start|stop|trust|revoke).*(mfa|2fa|two[ _-]?factor|multi[ _-]?factor|otp|totp|sms[ _-]?code|email[ _-]?code|security|secure|password[ _-]?policy|device[ _-]?trust|trusted[ _-]?device|session|token|refresh[ _-]?token|access[ _-]?token|ip[ _-]?whitelist|allowlist|blocklist|blacklist|captcha|verification|identity|kyc).*"},
+        @{@"name": @"隐私/合规/同意", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|allow|enable|disable|get|set|show|hide|remove|block|create|update|delete|query|report|detect|filter|monitor|track|start|stop|consent|opt).*(privacy|policy|consent|cookie|cookies|gdpr|ccpa|compliance|comply|data[ _-]?retention|data[ _-]?deletion|data[ _-]?export|delete[ _-]?account|deactivate|anonymize|mask|redact|tracking|tracker|advertising[ _-]?id|idfa|gaid|att|consent[ _-]?banner|cookie[ _-]?banner|opt[ _-]?in|opt[ _-]?out|terms|agreement).*"},
+        @{@"name": @"多端/设备/同步", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|allow|enable|disable|get|set|show|hide|remove|block|unlock|access|use|create|update|delete|query|report|detect|filter|monitor|track|start|stop|sync|login|logout).*(device|devices|multi[ _-]?device|concurrent|concurrency|simultaneous|online|session|sessions|sync|synchronize|backup|restore|transfer|merge|link|unlink|pc|mobile|tablet|tv|web|client|platform).*"},
+        @{@"name": @"存储/备份/导出", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|unlock|access|use|create|update|delete|query|report|detect|filter|monitor|track|start|stop|upload|download|export|import|backup|restore|sync).*(storage|space|capacity|quota|file|files|folder|backup|restore|export|import|upload|download|sync|cloud|drive|archive|zip|pdf|csv|json|image|video|audio).*"},
+        @{@"name": @"DRM/截屏录屏", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|unlock|access|use|create|update|delete|query|report|detect|filter|monitor|track|start|stop|play|view|download|export).*(content|premium[ _-]?content|paid[ _-]?content|exclusive|drm|copyright|license|licence|watermark|no[ _-]?watermark|remove[ _-]?watermark|screenshot|screen[ _-]?capture|screen[ _-]?record|recording|stream|playback|quality|hd|uhd|4k|1080p|720p|offline|download).*"},
+        @{@"name": @"AI/Token额度", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|limit|exceed|reach|require|verify|get|set|show|hide|remove|block|allow|enable|disable|create|update|delete|query|report|detect|filter|monitor|track|start|stop|request|generate).*(ai|token|tokens|prompt|completion|generation|generate|image[ _-]?generation|video[ _-]?generation|speech|voice|translation|ocr|quota|usage|rate[ _-]?limit|api[ _-]?limit|concurrency|credit|credits|balance|billing).*"},
+        @{@"name": @"邀请/推荐/分销", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|create|update|delete|query|report|monitor|track|start|stop|invite|share|refer|redeem|reward).*(invite|invitation|referral|refer|referrer|referee|share|promo[ _-]?code|invite[ _-]?code|referral[ _-]?code|affiliate|commission|rebate|reward|rewards|bonus|points|credit|cash|withdraw|payout|distribution).*"},
+        @{@"name": @"签到/任务/成就", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|create|update|delete|query|report|monitor|track|start|stop|complete|claim|redeem|earn).*(point|points|credit|credits|coin|coins|score|reward|rewards|bonus|task|tasks|mission|achievement|achievements|level|exp|experience|growth|signin|checkin|check[ _-]?in|streak|daily|weekly|monthly|claim|redeem).*"},
+        @{@"name": @"礼品卡/兑换码", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|create|update|delete|query|report|monitor|track|start|stop|redeem|apply|use|recharge|withdraw|topup).*(gift[ _-]?card|gift[ _-]?code|voucher|redeem[ _-]?code|promo[ _-]?code|coupon|code|recharge|topup|deposit|withdraw|payout|wallet|balance|credit|cash|coin|points).*"},
+        @{@"name": @"支付渠道/收据验证", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|pay|buy|purchase|refund|cancel|verify|validate|require|get|set|create|update|delete|query|report|monitor|track|start|stop|retry|confirm).*(payment|pay|checkout|channel|provider|gateway|stripe|paypal|alipay|wechat|apple[ _-]?pay|google[ _-]?pay|in[ _-]?app|iap|receipt|receipt[ _-]?validation|transaction|charge|chargeback|3ds|payment[ _-]?failed|retry).*"},
+        @{@"name": @"订阅生命周期", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|create|update|delete|query|report|monitor|track|start|stop|renew|upgrade|downgrade|pause|resume|cancel|refund|retain|winback).*(subscription|subscribe|sub|plan|tier|trial|trial[ _-]?end|grace[ _-]?period|auto[ _-]?renew|cancel[ _-]?at[ _-]?period[ _-]?end|downgrade|upgrade|pause|resume|retention|retain|churn|winback|cancel[ _-]?reason|renewal|reminder).*"},
+        @{@"name": @"灰度/AB测试", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|create|update|delete|query|report|detect|filter|monitor|track|start|stop|assign|expose).*(experiment|ab[ _-]?test|a[ _-]?b[ _-]?test|variant|bucket|cohort|rollout|gray|grey|canary|feature[ _-]?flag|flag|toggle|switch|gate|whitelist|allowlist|beta|early[ _-]?access|internal|test|staging).*"},
+        @{@"name": @"解锁功能/能力", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|allow|enable|disable|require|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|grant|revoke).*(unlock|unlocked|unlocking|feature|feature[ _-]?flag|function|capability|permission|permissions|entitlement|benefit|privilege|access|premium|pro|vip|member|content|limit|quota|download|export|hd|quality|watermark|ad[ _-]?free|adfree|no[ _-]?ads|remove[ _-]?ads|full[ _-]?version|all|everything).*"},
+        @{@"name": @"解锁状态检查", @"isRegex": @YES, @"content":
+            @"(?i).*(is|has|check|should|can|need|verify|validate|require|get|set|show|hide|remove|block|unlock|access|use|request|query|report|detect|filter|monitor|track|start|stop).*(unlocked|unlockable|is[ _-]?unlocked|can[ _-]?unlock|should[ _-]?unlock|need[ _-]?unlock|requires[ _-]?unlock|unlock[ _-]?required|feature[ _-]?unlocked|function[ _-]?unlocked|content[ _-]?unlocked|premium[ _-]?unlocked|pro[ _-]?unlocked|vip[ _-]?unlocked|paywall[ _-]?unlocked|ad[ _-]?free[ _-]?unlocked).*"},
+    ];
+}
+
++ (void)ensureSeeded {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    if ([ud boolForKey:@"DHBuiltinKeywordsSeeded"]) return;
+    NSArray *existing = [ud arrayForKey:@"DHKeywordFolders"];
+    NSMutableArray *all = [NSMutableArray new];
+    if (existing) [all addObjectsFromArray:existing];
+    [all addObjectsFromArray:[self defaultFolders]];
+    [ud setObject:all forKey:@"DHKeywordFolders"];
+    [ud setBool:YES forKey:@"DHBuiltinKeywordsSeeded"];
+    [ud synchronize];
+}
+
+@end
