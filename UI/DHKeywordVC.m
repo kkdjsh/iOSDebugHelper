@@ -41,7 +41,7 @@
     if (!q.length) { self.filtered = [[self folders] mutableCopy]; return; }
     self.filtered = [NSMutableArray new];
     for (NSDictionary *e in [self folders]) {
-        if ([e[@"name"].lowercaseString containsString:q]) [self.filtered addObject:e];
+        if ([(NSString *)e[@"name"] localizedLowercaseString] containsString:q]) [self.filtered addObject:e];
     }
 }
 - (void)searchBar:(UISearchBar *)s textDidChange:(NSString *)t { [self doFilter]; [self.tableView reloadData]; }
@@ -73,7 +73,7 @@
     NSString *name = self.filtered[ip.row][@"name"];
     NSInteger realIdx = 0;
     for (NSInteger i = 0; i < [self folders].count; i++) {
-        if ([self folders][i][@"name"] isEqualToString:name]) { realIdx = i; break; }
+        if ([[self folders][i][@"name"] isEqualToString:name]) { realIdx = i; break; }
     }
     vc.idx = realIdx;
     [self.navigationController pushViewController:vc animated:YES];
