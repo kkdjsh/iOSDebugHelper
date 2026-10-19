@@ -987,6 +987,7 @@
     if (isRegex) {
         // 正则模式：每行一条正则
         NSMutableArray *regexes = [NSMutableArray new];
+        NSInteger failed = 0;
         NSArray *lines = [content componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
         for (NSString *line in lines) {
             NSString *t = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
@@ -994,10 +995,12 @@
             NSError *err = nil;
             NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:t options:NSRegularExpressionCaseInsensitive error:&err];
             if (re) [regexes addObject:re];
+            else failed++;
         }
         if (regexes.count == 0) { [self showToast:@"词库为空或正则格式错误"]; return; }
         _activeRegexes = regexes;
         _activeKeywords = nil;
+        if (failed > 0) [self showToast:[NSString stringWithFormat:@"%lu条成功,%ld条失败", (unsigned long)regexes.count, (long)failed]];
     } else {
         NSArray *parts = [content componentsSeparatedByCharactersInSet:
             [NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
@@ -1034,7 +1037,33 @@
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
-                // 闪电词库过滤（叠加）
+                // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
+                // 过滤系统类
+                if (fSys) {
+                    NSString *cn = r.className;
+                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
+                }
+                // 仅看BOOL方法
+                if (fBool) {
+                    NSString *mn = r.methodName.lowercaseString;
+                    if (![mn hasPrefix:@"is"] && ![mn hasPrefix:@"has"] && ![mn hasPrefix:@"should"]) continue;
+                }
+                // 仅看带参方法
+                if (fArgs) {
+                    if (![r.methodName containsString:@":"]) continue;
+                }
+                // 搜索框关键词
+                if (kw.length) {
+                    if (scope == 1) {
+                        if (![r.className.lowercaseString containsString:kw]) continue;
+                    } else if (scope == 2) {
+                        if (![r.methodName.lowercaseString containsString:kw]) continue;
+                    } else {
+                        if (![r.className.lowercaseString containsString:kw] && ![r.methodName.lowercaseString containsString:kw]) continue;
+                    }
+                }
+                // 闪电词库过滤（叠加，放在最后因为正则慢）
                 if (activeKws.count) {
                     BOOL hit = NO;
                     for (NSString *akw in activeKws) {
@@ -1050,31 +1079,6 @@
                             [re rangeOfFirstMatchInString:r.className options:0 range:NSMakeRange(0, r.className.length)].location != NSNotFound) { hit = YES; break; }
                     }
                     if (!hit) continue;
-                }
-                // 关键词过滤
-                if (kw.length) {
-                    if (scope == 1) {
-                        if (![r.className.lowercaseString containsString:kw]) continue;
-                    } else if (scope == 2) {
-                        if (![r.methodName.lowercaseString containsString:kw]) continue;
-                    } else {
-                        if (![r.className.lowercaseString containsString:kw] && ![r.methodName.lowercaseString containsString:kw]) continue;
-                    }
-                }
-                // 过滤系统类
-                if (fSys) {
-                    NSString *cn = r.className;
-                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
-                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
-                }
-                // 仅看BOOL方法（方法名以is/has/should开头）
-                if (fBool) {
-                    NSString *mn = r.methodName.lowercaseString;
-                    if (![mn hasPrefix:@"is"] && ![mn hasPrefix:@"has"] && ![mn hasPrefix:@"should"]) continue;
-                }
-                // 仅看带参方法
-                if (fArgs) {
-                    if (![r.methodName containsString:@":"]) continue;
                 }
                 [result addObject:r];
             }
@@ -1152,6 +1156,16 @@
     NSMutableArray *newHooks = [NSMutableArray new];
     for (DHScannerResult *r in self.filteredResults) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
+        // 跳过系统类，防止hook系统方法闪退
+        NSString *cn = r.className;
+        if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+            [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"] ||
+            [cn hasPrefix:@"AV"] || [cn hasPrefix:@"WK"] || [cn hasPrefix:@"CG"] ||
+            [cn hasPrefix:@"CI"] || [cn hasPrefix:@"CT"] || [cn hasPrefix:@"OS_"] ||
+            [cn hasPrefix:@"CX"] || [cn hasPrefix:@"MK"] || [cn hasPrefix:@"CL"] ||
+            [cn hasPrefix:@"CN"] || [cn hasPrefix:@"LS"] || [cn hasPrefix:@"CSS"] ||
+            [cn hasPrefix:@"QL"] || [cn hasPrefix:@"TI"] || [cn hasPrefix:@"IM"] ||
+            [cn hasPrefix:@"CK"] || [cn hasPrefix:@"GK"] || [cn hasPrefix:@"GK"]) continue;
         DHHookInfo *h = [DHHookInfo new];
         h.className = r.className;
         h.selectorName = r.methodName;
