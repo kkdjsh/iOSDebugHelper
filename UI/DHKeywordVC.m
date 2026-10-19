@@ -85,21 +85,36 @@
 @end
 
 #pragma mark - 编辑（直接编辑词库内容）
-@implementation DHKeywordEditVC
+@implementation DHKeywordEditVC {
+    UISwitch *_regexSwitch;
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor whiteColor];
     self.title = self.folders[self.idx][@"name"];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
+    UIBarButtonItem *saveBtn = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
+    _regexSwitch = [[UISwitch alloc] init];
+    _regexSwitch.on = [self.folders[self.idx][@"isRegex"] boolValue];
+    UIBarButtonItem *regexBtn = [[UIBarButtonItem alloc] initWithCustomView:_regexSwitch];
+    self.navigationItem.rightBarButtonItems = @[saveBtn, regexBtn];
     self.tv = [[UITextView alloc] initWithFrame:self.view.bounds];
     self.tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tv.font = [UIFont systemFontOfSize:14];
     self.tv.text = self.folders[self.idx][@"content"];
     [self.view addSubview:self.tv];
+    // 提示条
+    UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(0, self.view.bounds.size.height-44, self.view.bounds.size.width, 22)];
+    tip.text = @"正则模式：每行一条正则表达式";
+    tip.font = [UIFont systemFontOfSize:11];
+    tip.textColor = [UIColor grayColor];
+    tip.textAlignment = NSTextAlignmentCenter;
+    tip.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
+    [self.view addSubview:tip];
 }
 - (void)save {
     NSMutableDictionary *folder = [self.folders[self.idx] mutableCopy];
     folder[@"content"] = self.tv.text;
+    folder[@"isRegex"] = @(_regexSwitch.on);
     self.folders[self.idx] = folder;
     [[NSUserDefaults standardUserDefaults] setObject:self.folders forKey:@"DHKeywordFolders"];
     [[NSUserDefaults standardUserDefaults] synchronize];

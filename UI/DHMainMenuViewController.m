@@ -688,7 +688,8 @@
     BOOL _filterSystemClasses; // 默认YES
     BOOL _filterBOOLOnly;
     BOOL _filterHasArgs;
-    NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词
+    NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词（普通模式）
+    NSArray<NSRegularExpression *> *_activeRegexes; // 闪电词库激活的正则模式
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
 }
@@ -982,15 +983,33 @@
 
 - (void)applyKeywordFolder:(NSDictionary *)folder {
     NSString *content = folder[@"content"] ?: @"";
-    NSArray *parts = [content componentsSeparatedByCharactersInSet:
-        [NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
-    NSMutableSet *kws = [NSMutableSet new];
-    for (NSString *p in parts) {
-        NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        if (t.length) [kws addObject:t];
+    BOOL isRegex = [folder[@"isRegex"] boolValue];
+    if (isRegex) {
+        // 正则模式：每行一条正则
+        NSMutableArray *regexes = [NSMutableArray new];
+        NSArray *lines = [content componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        for (NSString *line in lines) {
+            NSString *t = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            if (!t.length) continue;
+            NSError *err = nil;
+            NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:t options:NSRegularExpressionCaseInsensitive error:&err];
+            if (re) [regexes addObject:re];
+        }
+        if (regexes.count == 0) { [self showToast:@"词库为空或正则格式错误"]; return; }
+        _activeRegexes = regexes;
+        _activeKeywords = nil;
+    } else {
+        NSArray *parts = [content componentsSeparatedByCharactersInSet:
+            [NSCharacterSet characterSetWithCharactersInString:@",，、/\\ \n\t"]];
+        NSMutableSet *kws = [NSMutableSet new];
+        for (NSString *p in parts) {
+            NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            if (t.length) [kws addObject:t];
+        }
+        if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
+        _activeKeywords = [kws copy];
+        _activeRegexes = nil;
     }
-    if (kws.count == 0) { [self showToast:@"词库为空"]; return; }
-    _activeKeywords = [kws copy];
     [self searchBar:self.searchBar textDidChange:self.searchBar.text ?: @""];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self showToast:[NSString stringWithFormat:@"%@: 匹配到%lu条", folder[@"name"], (unsigned long)self.filteredResults.count]];
@@ -1010,6 +1029,7 @@
     BOOL fArgs = _filterHasArgs;
     NSArray *all = self.allResults;
     NSSet *activeKws = _activeKeywords;
+    NSArray *activeRegexes = _activeRegexes;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSMutableArray *result = [NSMutableArray new];
@@ -1020,6 +1040,14 @@
                     for (NSString *akw in activeKws) {
                         if ([r.className rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound ||
                             [r.methodName rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
+                    }
+                    if (!hit) continue;
+                }
+                if (activeRegexes.count) {
+                    BOOL hit = NO;
+                    for (NSRegularExpression *re in activeRegexes) {
+                        if ([re rangeOfFirstMatchInString:r.methodName options:0 range:NSMakeRange(0, r.methodName.length)].location != NSNotFound ||
+                            [re rangeOfFirstMatchInString:r.className options:0 range:NSMakeRange(0, r.className.length)].location != NSNotFound) { hit = YES; break; }
                     }
                     if (!hit) continue;
                 }
