@@ -1350,69 +1350,90 @@
 }
 
 - (void)setupDefaultKeywordFolders {
-    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
-    if (existing.count > 0) return; // 用户已经有词库了，不覆盖
+    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[];
+    NSMutableArray *existingNames = [NSMutableArray new];
+    for (NSDictionary *f in existing) [existingNames addObject:f[@"name"]];
 
-    NSMutableArray *defaultFolders = [NSMutableArray new];
+    NSMutableArray *toAdd = [NSMutableArray new];
 
     // 1. 定时器/轮询（正则）
-    [defaultFolders addObject:@{
-        @"name": @"🔴定时器/轮询(正则)",
-        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|schedule|delay|clear|fire|invalidate|tick|trigger|timeout|poll|loop|wait|sleep|reset|restart|pause|resume|count).*(timer|countdown|interval|delay|timeout|tick|polling|heartbeat|schedule|task|alarm|dispatch|handler|coroutine|loop|wait|sleep|duration|elapsed).*",
-        @"isRegex": @YES,
-    }];
+    if (![existingNames containsObject:@"🔴定时器/轮询(正则)"]) {
+        [toAdd addObject:@{
+            @"name": @"🔴定时器/轮询(正则)",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|schedule|delay|clear|fire|invalidate|tick|trigger|timeout|poll|loop|wait|sleep|reset|restart|pause|resume|count).*(timer|countdown|interval|delay|timeout|tick|polling|heartbeat|schedule|task|alarm|dispatch|handler|coroutine|loop|wait|sleep|duration|elapsed).*",
+            @"isRegex": @YES,
+        }];
+    }
 
     // 2. 音视频（正则）
-    [defaultFolders addObject:@{
-        @"name": @"🔴音视频/播放(正则)",
-        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|play|pause|resume|seek|record|capture|save|render|compress|trim|crop|cut|split|merge|export|import|download|upload|stream|mute|unmute|scale|resize|rotate|dial).*(video|audio|voice|sound|music|media|player|recorder|stream|render|frame|codec|compress|trim|crop|volume|mute|speaker|microphone|mic|camera|subtitle|caption).*",
-        @"isRegex": @YES,
-    }];
+    if (![existingNames containsObject:@"🔴音视频/播放(正则)"]) {
+        [toAdd addObject:@{
+            @"name": @"🔴音视频/播放(正则)",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|play|pause|resume|seek|record|capture|save|render|compress|trim|crop|cut|split|merge|export|import|download|upload|stream|mute|unmute|scale|resize|rotate|dial).*(video|audio|voice|sound|music|media|player|recorder|stream|render|frame|codec|compress|trim|crop|volume|mute|speaker|microphone|mic|camera|subtitle|caption).*",
+            @"isRegex": @YES,
+        }];
+    }
 
     // 3. 通话计费（正则）
-    [defaultFolders addObject:@{
-        @"name": @"🔴通话/计费(正则)",
-        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|end|hangup|answer|accept|reject|decline|hold|unhold|deduct|charge|consume|calculate|count|dial).*(call|dial|phone|voice|speaker|microphone|balance|coin|diamond|credit|fee|price|rate|cost|billing|charge|duration|time|minute|second|hold|mute|hangup).*",
-        @"isRegex": @YES,
-    }];
+    if (![existingNames containsObject:@"🔴通话/计费(正则)"]) {
+        [toAdd addObject:@{
+            @"name": @"🔴通话/计费(正则)",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|end|hangup|answer|accept|reject|decline|hold|unhold|deduct|charge|consume|calculate|count|dial).*(call|dial|phone|voice|speaker|microphone|balance|coin|diamond|credit|fee|price|rate|cost|billing|charge|duration|time|minute|second|hold|mute|hangup).*",
+            @"isRegex": @YES,
+        }];
+    }
 
     // 4. 送礼打赏（正则）
-    [defaultFolders addObject:@{
-        @"name": @"🔴送礼/打赏(正则)",
-        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|select|send|give|receive|play|calculate|deduct|charge|consume|animate).*(gift|present|tip|reward|combo|animation|effect|panel|sender|receiver|balance|coin|diamond|price|cost|count|list).*",
-        @"isRegex": @YES,
-    }];
+    if (![existingNames containsObject:@"🔴送礼/打赏(正则)"]) {
+        [toAdd addObject:@{
+            @"name": @"🔴送礼/打赏(正则)",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|select|send|give|receive|play|calculate|deduct|charge|consume|animate).*(gift|present|tip|reward|combo|animation|effect|panel|sender|receiver|balance|coin|diamond|price|cost|count|list).*",
+            @"isRegex": @YES,
+        }];
+    }
 
     // 5. 定时器（普通）
-    [defaultFolders addObject:@{
-        @"name": @"🟢定时器/轮询(普通)",
-        @"content": @"Timer\nNSTimer\nCADisplayLink\nDispatchSourceTimer\nCountDownTimer\nisTimerRunning\nisTimerActive\nisTimerValid\nisCountdownRunning\nisTimeout\nhasTimeout\ncheckTimeout\nisTimeUp\ngetTimer\ngetTimerState\ngetInterval\ngetDelay\ngetPeriod\ngetTick\ngetElapsedTime\ngetRemainingTime\nstartTimer\nstopTimer\npauseTimer\nresumeTimer\ncancelTimer\nresetTimer\nrestartTimer\ninvalidateTimer\nscheduleTimer\nscheduleDelay\nscheduleTask\nstartCountdown\nstopCountdown\ncancelCountdown\nstartPolling\nstopPolling\nstartHeartbeat\nstopHeartbeat\npostDelayed\nonTick\nonFinish\nonTimerTick\ntick\nfire\ninvalidate\nschedule\nclearTimeout\nsetTimeout\nsetInterval\nclearInterval",
-        @"isRegex": @NO,
-    }];
+    if (![existingNames containsObject:@"🟢定时器/轮询(普通)"]) {
+        [toAdd addObject:@{
+            @"name": @"🟢定时器/轮询(普通)",
+            @"content": @"Timer\nNSTimer\nCADisplayLink\nDispatchSourceTimer\nCountDownTimer\nHandler\nTimerTask\nScheduledExecutorService\nAlarmManager\nRxTimer\nTimerManager\nTimerUtil\nTimerHelper\nHeartbeatManager\nPollingManager\nTimerTaskManager\nCountDownUtil\nisTimerRunning\nisTimerActive\nisTimerValid\nisCountdownRunning\nisTimeout\nhasTimeout\ncheckTimeout\nisTimeUp\ngetTimer\ngetTimerState\ngetInterval\ngetDelay\ngetPeriod\ngetTick\ngetElapsedTime\ngetRemainingTime\ngetCallDuration\ngetStartTime\ngetEndTime\nstartTimer\nstopTimer\npauseTimer\nresumeTimer\ncancelTimer\nresetTimer\nrestartTimer\ninvalidateTimer\nscheduleTimer\nscheduleDelay\nscheduleTask\nscheduleAtFixedRate\nstartCountdown\nstopCountdown\ncancelCountdown\nstartPolling\nstopPolling\nstartHeartbeat\nstopHeartbeat\npostDelayed\nremoveCallbacks\nasyncAfter\nonTick\nonFinish\nonTimerTick\nonCountdownTick\ntick\nfire\ninvalidate\nschedule\nunschedule\nclearTimeout\nsetTimeout\nsetInterval\nclearInterval",
+            @"isRegex": @NO,
+        }];
+    }
 
     // 6. 音视频（普通）
-    [defaultFolders addObject:@{
-        @"name": @"🟢音视频/播放(普通)",
-        @"content": @"VideoPlayer\nVideoView\nVideoEditor\nVideoCompressor\nAudioPlayer\nAudioRecorder\nAudioManager\nMediaPlayer\nMediaRecorder\nisVideo\nhasVideo\nisVideoValid\nisVideoPlaying\nisVideoPaused\nisVideoStopped\nisVideoEnded\nisVideoLoading\nisVideoBuffering\nisVideoMuted\nisAudio\nhasAudio\nisAudioPlaying\nisAudioPaused\nisAudioMuted\nisRecording\nisMicrophoneOn\nisSpeakerOn\ngetVideo\ngetVideoInfo\ngetVideoDuration\ngetAudio\ngetAudioInfo\ngetAudioDuration\nloadVideo\nplayVideo\npauseVideo\nstopVideo\nresumeVideo\nseekVideo\nrestartVideo\ncompressVideo\ntrimVideo\ncropVideo\nsplitVideo\nmergeVideo\nrecordVideo\ncaptureVideo\nplayAudio\npauseAudio\nstopAudio\nrecordAudio\nstartRecord\nstopRecord\nsetVideoQuality\nsetVideoSpeed\nsetVideoVolume\nsetVideoMute\nsetAudioVolume\nsetAudioSpeed\nmuteMicrophone\nunmuteMicrophone",
-        @"isRegex": @NO,
-    }];
+    if (![existingNames containsObject:@"🟢音视频/播放(普通)"]) {
+        [toAdd addObject:@{
+            @"name": @"🟢音视频/播放(普通)",
+            @"content": @"VideoPlayer\nVideoView\nVideoEditor\nVideoCompressor\nAudioPlayer\nAudioRecorder\nAudioManager\nMediaPlayer\nMediaRecorder\nVideoRenderer\nVideoEncoder\nVideoDecoder\nisVideo\nhasVideo\nisVideoValid\nisVideoPlaying\nisVideoPaused\nisVideoStopped\nisVideoEnded\nisVideoLoading\nisVideoBuffering\nisVideoCompressed\nisVideoMuted\nisAudio\nhasAudio\nisAudioPlaying\nisAudioPaused\nisAudioMuted\nisRecording\nisMicrophoneOn\nisSpeakerOn\ngetVideo\ngetVideoInfo\ngetVideoFormat\ngetVideoSize\ngetVideoResolution\ngetVideoBitrate\ngetVideoFrameRate\ngetAudio\ngetAudioInfo\ngetAudioDuration\ngetAudioFormat\ngetAudioVolume\ngetMedia\nloadVideo\nplayVideo\npauseVideo\nstopVideo\nresumeVideo\nseekVideo\nrestartVideo\ndownloadVideo\nuploadVideo\nexportVideo\nimportVideo\ncompressVideo\ntrimVideo\ncropVideo\ncutVideo\nsplitVideo\nmergeVideo\nrotateVideo\nresizeVideo\nscaleVideo\nrenderVideo\npreviewVideo\nrecordVideo\ncaptureVideo\nsaveVideo\ndeleteVideo\nshareVideo\nplayAudio\npauseAudio\nstopAudio\nresumeAudio\nseekAudio\nrecordAudio\nstartRecord\nstopRecord\nsetVideoQuality\nsetVideoSpeed\nsetVideoVolume\nsetVideoMute\nsetVideoResolution\nsetVideoBitrate\nsetAudioVolume\nsetAudioSpeed\nsetAudioQuality\nsetAudioMute\nmuteMicrophone\nunmuteMicrophone\nenableSpeaker\ndisableSpeaker",
+            @"isRegex": @NO,
+        }];
+    }
 
     // 7. 通话计费（普通）
-    [defaultFolders addObject:@{
-        @"name": @"🟢通话/计费(普通)",
-        @"content": @"CallManager\nCallKit\nCallBillingManager\nCallChargeManager\nVoiceEngine\nisCall\nhasCall\nisCalling\nisCallActive\nisCallConnected\nisCallEnded\nisCallIncoming\nisCallOutgoing\nisCallMuted\nisCallHeld\nisCallBilling\nhasCallBilling\nisBillingActive\nisCharging\nisCallCharging\nisBalanceEnoughForCall\nisCallBalanceSufficient\nisCallTimeExceeded\nisCallTimeout\ngetCallRate\ngetCallPrice\ngetCallFee\ngetCallCost\ngetCallMinutePrice\ngetCallBalance\ngetCallDuration\ngetCallBillingDuration\ngetCallingTime\ngetRemainingCallTime\ngetCallStatus\ngetCallHistory\nstartCall\nendCall\nhangUp\nanswerCall\nacceptCall\nrejectCall\ndeclineCall\nmuteCall\nunmuteCall\nholdCall\nunholdCall\nstartCallTimer\nstartCallBilling\nstartCallCharging\nstopCallTimer\nstopCallBilling\nstopCallCharging\ncalculateCallCost\ncalculateCallFee\ndeductCallFee\ndeductCallCoin\ndeductCallDiamond\nchargeCallFee\nconsumeCallCoin\npayForCall",
-        @"isRegex": @NO,
-    }];
+    if (![existingNames containsObject:@"🟢通话/计费(普通)"]) {
+        [toAdd addObject:@{
+            @"name": @"🟢通话/计费(普通)",
+            @"content": @"CallManager\nCallKit\nCallBillingManager\nCallChargeManager\nVoiceEngine\nVoiceCallBilling\nAudioCallFee\nisCall\nhasCall\nisCalling\nisCallActive\nisCallConnected\nisCallEnded\nisCallIncoming\nisCallOutgoing\nisCallMuted\nisCallHeld\nisCallBilling\nhasCallBilling\nisBillingActive\nisCharging\nisCallCharging\nisBalanceEnoughForCall\nisCallBalanceSufficient\nisCallBillingReached\nisNeedChargeCall\nisCallTimeExceeded\nisCallTimeout\ngetCallRate\ngetCallPrice\ngetCallPricePerMinute\ngetCallFee\ngetVoiceCallFee\ngetCallCost\ngetCallMinutePrice\ngetCallBalance\ngetCallDuration\ngetCallBillingDuration\ngetCallingTime\ngetRemainingCallTime\ngetCallStatus\ngetCallHistory\ngetCallerInfo\nstartCall\nendCall\nhangUp\nanswerCall\nacceptCall\nrejectCall\ndeclineCall\nmuteCall\nunmuteCall\nholdCall\nunholdCall\nstartCallTimer\nstartCallBilling\nstartCallCharging\nstopCallTimer\nstopCallBilling\nstopCallCharging\npauseCallBilling\nresumeCallBilling\ncalculateCallCost\ncalculateCallFee\ncalculateCallDuration\ndeductCallFee\ndeductCallCoin\ndeductCallDiamond\nchargeCallFee\nchargeCallCoin\nchargeCallDiamond\nconsumeCallCoin\nconsumeCallDiamond\npayForCall\npayCallFee\ncheckCallTimeLimit\ncheckCallBalanceLimit\ncheckCallCostLimit",
+            @"isRegex": @NO,
+        }];
+    }
 
     // 8. 送礼打赏（普通）
-    [defaultFolders addObject:@{
-        @"name": @"🟢送礼/打赏(普通)",
-        @"content": @"GiftManager\nGiftController\nGiftPanel\nGiftAnimator\nGiftSender\nGiftReceiver\nGiftComboUtils\nVirtualGift\nLiveGift\nisGift\nhasGift\nisGiftAvailable\nisGiftSelected\nisGiftSent\nisGiftSending\nisGiftCombo\nisComboActive\nisComboTimeout\nisEnoughBalanceForGift\nisGiftAnimationPlaying\ngetGift\ngetGiftList\ngetGiftInfo\ngetGiftId\ngetGiftName\ngetGiftIcon\ngetGiftPrice\ngetGiftCost\ngetGiftCount\ngetGiftComboCount\ngetGiftBalance\ngetGiftAnimation\ngetGiftEffect\nsetGift\nsetGiftCount\nsetGiftPrice\nselectGift\nsendGift\ngiveGift\nsendVirtualGift\nsendComboGift\nreceiveGift\nbuyGift\npurchaseGift\nloadGiftList\nloadGiftPanel\nshowGiftPanel\nhideGiftPanel\nshowGiftAnimation\nplayGiftAnimation\nshowGiftEffect\nplayGiftEffect\nhideGiftAnimation\nclearGiftAnimation\nstartCombo\nstopCombo\nresetCombo\ncalculateGiftTotal\ncalculateGiftCost\ndeductGiftCoin\ndeductGiftDiamond\nchargeGiftFee\nconsumeGiftCoin\npayForGift\ntrackGiftSend",
-        @"isRegex": @NO,
-    }];
+    if (![existingNames containsObject:@"🟢送礼/打赏(普通)"]) {
+        [toAdd addObject:@{
+            @"name": @"🟢送礼/打赏(普通)",
+            @"content": @"GiftManager\nGiftController\nGiftPanel\nGiftAnimator\nGiftSender\nGiftReceiver\nGiftComboUtils\nVirtualGift\nLiveGift\nSendGiftUtils\nisGift\nhasGift\nisGiftAvailable\nisGiftSelected\nisGiftSent\nisGiftSending\nisGiftCombo\nisComboActive\nisComboTimeout\nisEnoughBalanceForGift\nisGiftAnimationPlaying\ngetGift\ngetGiftList\ngetGiftInfo\ngetGiftId\ngetGiftName\ngetGiftIcon\ngetGiftPrice\ngetGiftCost\ngetGiftCount\ngetGiftComboCount\ngetGiftSender\ngetGiftReceiver\ngetGiftHistory\ngetGiftBalance\ngetGiftAnimation\ngetGiftEffect\nsetGift\nsetGiftCount\nsetGiftComboCount\nsetGiftPrice\nselectGift\nsendGift\ngiveGift\nsendVirtualGift\nsendComboGift\nsendGiftToUser\nreceiveGift\nbuyGift\npurchaseGift\nloadGiftList\nloadGiftPanel\nshowGiftPanel\nhideGiftPanel\nshowGiftAnimation\nplayGiftAnimation\nshowGiftEffect\nplayGiftEffect\nhideGiftAnimation\nclearGiftAnimation\nstartCombo\nstopCombo\nresetCombo\ncalculateGiftTotal\ncalculateGiftCost\ncalculateGiftPrice\ndeductGiftCoin\ndeductGiftDiamond\nchargeGiftFee\nconsumeGiftCoin\npayForGift\ntrackGiftSend\nreportGiftSend",
+            @"isRegex": @NO,
+        }];
+    }
 
-    [[NSUserDefaults standardUserDefaults] setObject:defaultFolders forKey:@"DHKeywordFolders"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    if (toAdd.count > 0) {
+        NSMutableArray *newArr = [NSMutableArray arrayWithArray:existing];
+        [newArr addObjectsFromArray:toAdd];
+        [[NSUserDefaults standardUserDefaults] setObject:newArr forKey:@"DHKeywordFolders"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
 }
 
 - (void)openKeywordMenu {
