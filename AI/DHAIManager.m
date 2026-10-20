@@ -116,4 +116,33 @@ static NSString *const kDHAIConfigKey = @"DH_AIConfig";
     [task resume];
 }
 
+#pragma mark - 翻译缓存
+
+static NSString *TranslationCachePath(void) {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    dir = [dir stringByAppendingPathComponent:@"iOSDebugHelper"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    return [dir stringByAppendingPathComponent:@"translations.plist"];
+}
+
++ (NSMutableDictionary *)loadTranslationCache {
+    NSString *path = TranslationCachePath();
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return [NSMutableDictionary new];
+    return [NSMutableDictionary dictionaryWithContentsOfFile:path] ?: [NSMutableDictionary new];
+}
+
++ (void)saveTranslationCache:(NSDictionary *)dict {
+    [dict writeToFile:TranslationCachePath atomically:YES];
+}
+
++ (NSString *)translationForKey:(NSString *)key {
+    return [self loadTranslationCache][key];
+}
+
++ (void)setTranslation:(NSString *)zh forKey:(NSString *)key {
+    NSMutableDictionary *dict = [self loadTranslationCache];
+    dict[key] = zh;
+    [self saveTranslationCache:dict];
+}
+
 @end

@@ -23,6 +23,8 @@ typedef NS_ENUM(NSInteger, DHScannerCategory) {
 @property (nonatomic, copy)   NSString *imageName;      // 所属动态库
 @property (nonatomic, assign) BOOL isClassMethod;
 @property (nonatomic, copy)   NSString *fullSignature;  // 完整签名如 - (BOOL)isVip
+// 运行时缓存（不进 NSCoding）
+@property (nonatomic, copy, nullable) NSString *dh_translation; // AI 翻译结果
 @end
 
 @interface DHAdScanner : NSObject

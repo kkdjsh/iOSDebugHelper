@@ -36,6 +36,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)saveConfig;
 - (void)loadConfig;
 
+#pragma mark - 翻译缓存（持久化到本地 plist）
+/// 读取某个类+方法的中文翻译，key 格式 "className|methodName"
++ (nullable NSString *)translationForKey:(NSString *)key;
+/// 写入翻译缓存并保存
++ (void)setTranslation:(NSString *)zh forKey:(NSString *)key;
+
 @end
 
 NS_ASSUME_NONNULL_END

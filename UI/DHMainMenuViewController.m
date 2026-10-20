@@ -676,6 +676,194 @@
 }
 @end
 
+#pragma mark - AI 配置中心
+@interface DHAIPresetModel : NSObject
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic, copy) NSString *subtitle;
+@property (nonatomic, copy) NSString *apiURL;
+@property (nonatomic, copy) NSString *model;
+@end
+@implementation DHAIPresetModel
+@end
+
+@interface DHAIConfigVC : UITableViewController <UITextFieldDelegate>
+@property (nonatomic, strong) NSArray<DHAIPresetModel *> *presets;
+@property (nonatomic, assign) NSInteger selectedPreset;
+@property (nonatomic, strong) UITextField *keyField;
+@property (nonatomic, strong) UITextField *urlField;
+@property (nonatomic, strong) UITextField *modelField;
+@end
+
+@implementation DHAIConfigVC
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"AI 配置中心";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
+    self.selectedPreset = -1;
+
+    NSMutableArray *presets = [NSMutableArray new];
+    NSArray *data = @[
+        @{@"title": @"DeepSeek Chat",       @"subtitle": @"DeepSeek · deepseek-chat",        @"url": @"https://api.deepseek.com/chat/completions",                @"model": @"deepseek-chat"},
+        @{@"title": @"DeepSeek Reasoner",   @"subtitle": @"DeepSeek · deepseek-reasoner",    @"url": @"https://api.deepseek.com/chat/completions",                @"model": @"deepseek-reasoner"},
+        @{@"title": @"OpenAI GPT-4o",       @"subtitle": @"OpenAI · gpt-4o",                 @"url": @"https://api.openai.com/v1/chat/completions",              @"model": @"gpt-4o"},
+        @{@"title": @"OpenAI GPT-4o-mini",  @"subtitle": @"OpenAI · gpt-4o-mini",            @"url": @"https://api.openai.com/v1/chat/completions",              @"model": @"gpt-4o-mini"},
+        @{@"title": @"Claude 3.5 Sonnet",   @"subtitle": @"Anthropic · claude-3-5-sonnet-20241022", @"url": @"https://api.anthropic.com/v1/messages",              @"model": @"claude-3-5-sonnet-20241022"},
+        @{@"title": @"Gemini 2.0 Flash",    @"subtitle": @"Google · gemini-2.0-flash",       @"url": @"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", @"model": @"gemini-2.0-flash"},
+        @{@"title": @"通义千问 (Qwen)",     @"subtitle": @"阿里云 · qwen-plus",              @"url": @"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", @"model": @"qwen-plus"},
+        @{@"title": @"自定义接口 (Custom)",  @"subtitle": @"Custom · 自定义",                  @"url": @"",                                                         @"model": @""},
+    ];
+    for (NSDictionary *d in data) {
+        DHAIPresetModel *m = [DHAIPresetModel new];
+        m.title = d[@"title"]; m.subtitle = d[@"subtitle"];
+        m.apiURL = d[@"url"]; m.model = d[@"model"];
+        [presets addObject:m];
+    }
+    self.presets = presets;
+
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    for (NSInteger i = 0; i < presets.count; i++) {
+        DHAIPresetModel *p = presets[i];
+        if ([p.apiURL isEqualToString:cfg.apiURL] && [p.model isEqualToString:cfg.model]) {
+            self.selectedPreset = i;
+            break;
+        }
+    }
+
+    self.keyField = [[UITextField alloc] init];
+    self.keyField.placeholder = @"sk-...";
+    self.keyField.text = cfg.apiKey;
+    self.keyField.secureTextEntry = YES;
+    self.keyField.font = [UIFont systemFontOfSize:14];
+
+    self.urlField = [[UITextField alloc] init];
+    self.urlField.placeholder = @"https://api.example.com/v1/chat/completions";
+    self.urlField.text = cfg.apiURL;
+    self.urlField.font = [UIFont systemFontOfSize:14];
+
+    self.modelField = [[UITextField alloc] init];
+    self.modelField.placeholder = @"模型名，如 gpt-4o";
+    self.modelField.text = cfg.model;
+    self.modelField.font = [UIFont systemFontOfSize:14];
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+    if (s == 0) return self.presets.count;
+    if (s == 1) return 1;
+    return 3;
+}
+- (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
+    if (s == 0) return @"选择 AI 模型";
+    if (s == 1) return @"API KEY";
+    return @"高级设置（可选）";
+}
+
+- (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
+    static NSString *cid = @"AIConfigCell";
+    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:cid];
+    if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cid];
+
+    if (ip.section == 0) {
+        DHAIPresetModel *p = self.presets[ip.row];
+        c.textLabel.text = p.title;
+        c.textLabel.font = [UIFont systemFontOfSize:15];
+        c.detailTextLabel.text = p.subtitle;
+        c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+        c.detailTextLabel.textColor = [UIColor grayColor];
+        c.accessoryType = (ip.row == self.selectedPreset) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    } else if (ip.section == 1) {
+        c.textLabel.text = nil;
+        c.detailTextLabel.text = nil;
+        [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+        self.keyField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
+        self.keyField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [c.contentView addSubview:self.keyField];
+    } else {
+        if (ip.row == 0) {
+            c.textLabel.text = nil;
+            [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+            self.urlField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
+            self.urlField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [c.contentView addSubview:self.urlField];
+        } else if (ip.row == 1) {
+            c.textLabel.text = nil;
+            [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+            self.modelField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
+            self.modelField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [c.contentView addSubview:self.modelField];
+        } else {
+            c.textLabel.text = @"🧪 测试连接";
+            c.textLabel.textAlignment = NSTextAlignmentCenter;
+            c.textLabel.textColor = [UIColor systemBlueColor];
+        }
+    }
+    return c;
+}
+
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:YES];
+    if (ip.section == 0) {
+        self.selectedPreset = ip.row;
+        DHAIPresetModel *p = self.presets[ip.row];
+        if (p.apiURL.length) self.urlField.text = p.apiURL;
+        if (p.model.length) self.modelField.text = p.model;
+        [t reloadData];
+    } else if (ip.section == 2 && ip.row == 2) {
+        [self testConnection];
+    }
+}
+
+- (void)save {
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    cfg.apiKey = self.keyField.text ?: @"";
+    cfg.apiURL = self.urlField.text ?: @"";
+    cfg.model = self.modelField.text ?: @"";
+    [[DHAIManager sharedManager] saveConfig];
+    [self showToast:@"配置已保存"];
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
+- (void)testConnection {
+    NSString *url = self.urlField.text;
+    NSString *key = self.keyField.text;
+    if (!url.length) { [self showToast:@"请先填写 API 地址"]; return; }
+    if (!key.length) { [self showToast:@"请先填写 API Key"]; return; }
+    [self showToast:@"正在测试连接..."];
+    NSDictionary *body = @{
+        @"model": self.modelField.text ?: @"gpt-4o-mini",
+        @"messages": @[@{@"role": @"user", @"content": @"hi"}],
+        @"max_tokens": @5,
+    };
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 15;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { [self showToast:[NSString stringWithFormat:@"连接失败: %@", error.localizedDescription]]; return; }
+            NSHTTPURLResponse *r = (NSHTTPURLResponse *)resp;
+            if (r.statusCode == 200) {
+                [self showToast:@"✅ 连接成功"];
+            } else {
+                [self showToast:[NSString stringWithFormat:@"HTTP %ld", (long)r.statusCode]];
+            }
+        });
+    }];
+    [task resume];
+}
+
+- (void)showToast:(NSString *)msg {
+    UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:t animated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
+    }];
+}
+
+@end
+
 #pragma mark - 扫描结果控制器（带搜索、分组、Hook、区间复制、缓存）
 @interface DHScanResultVC : UITableViewController <UISearchBarDelegate>
 @property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
@@ -703,8 +891,10 @@
         [[UIBarButtonItem alloc] initWithTitle:@"批量补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
+        [[UIBarButtonItem alloc] initWithTitle:@"🤖AI翻译" style:UIBarButtonItemStylePlain target:self action:@selector(translateWithAI)],
     ];
-    self.tableView.rowHeight = 60;
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
     header.backgroundColor = [UIColor whiteColor];
@@ -765,6 +955,32 @@
     c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
+    // 第三行：AI 翻译结果（先查本地缓存，再查运行时缓存）
+    if (!r.dh_translation) {
+        NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+        r.dh_translation = [DHAIManager translationForKey:cacheKey];
+    }
+    UILabel *thirdLabel = [c.contentView viewWithTag:999];
+    if (!thirdLabel) {
+        thirdLabel = [[UILabel alloc] init];
+        thirdLabel.tag = 999;
+        thirdLabel.font = [UIFont systemFontOfSize:10];
+        thirdLabel.textColor = [UIColor systemBlueColor];
+        thirdLabel.numberOfLines = 1;
+        thirdLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        thirdLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        [c.contentView addSubview:thirdLabel];
+        [NSLayoutConstraint activateConstraints:@[
+            [thirdLabel.leadingAnchor constraintEqualToAnchor:c.detailTextLabel.leadingAnchor],
+            [thirdLabel.trailingAnchor constraintEqualToAnchor:c.contentView.trailingAnchor constant:-40],
+            [thirdLabel.topAnchor constraintEqualToAnchor:c.detailTextLabel.bottomAnchor constant:2],
+            [thirdLabel.bottomAnchor constraintEqualToAnchor:c.contentView.bottomAnchor constant:-4],
+        ]];
+    }
+    thirdLabel.text = r.dh_translation;
+    thirdLabel.hidden = (r.dh_translation.length == 0);
+
     // 已存在的补丁高亮绿色
     NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
     NSMutableSet *existing = [NSMutableSet new];
@@ -889,6 +1105,74 @@
     [[DHHookManager sharedManager] addHook:h];
     NSString *loc = folder ?: @"根目录";
     [self showToast:[NSString stringWithFormat:@"补丁已保存至 %@", loc]];
+}
+
+- (void)translateWithAI {
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+
+    NSArray *results = self.filteredResults;
+    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
+
+    // 取当前列表全部方法名，一次发给AI
+    NSMutableArray<NSString *> *methodList = [NSMutableArray new];
+    for (DHScannerResult *r in results) {
+        if ([r.methodName isEqualToString:@"(class)"]) continue;
+        [methodList addObject:r.methodName];
+    }
+    if (methodList.count == 0) { [self showToast:@"无可翻译的方法"]; return; }
+
+    [self showToast:@"🤖 AI 翻译中..."];
+
+    // 打包成 JSON 数组发给 AI，要求 AI 返回 JSON 对象 {方法名: 中文意思}
+    NSDictionary *body = @{
+        @"model": cfg.model ?: @"gpt-4o-mini",
+        @"messages": @[
+            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是一个 Objective-C 方法名数组，你需要把每个方法名翻译成简洁的中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译。不要输出任何其他内容。"},
+            @{@"role": @"user", @"content": [methodList componentsJoinedByString:@"\n"]},
+        ],
+        @"temperature": @0.3,
+        @"response_format": @{@"type": @"json_object"},
+    };
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:cfg.apiURL]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 60;
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { [self showToast:[NSString stringWithFormat:@"请求失败: %@", error.localizedDescription]]; return; }
+            NSError *jsonErr;
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
+            if (jsonErr) { [self showToast:@"返回数据解析失败"]; return; }
+            NSString *content = json[@"choices"][0][@"message"][@"content"];
+            if (!content.length) { [self showToast:@"AI 返回为空"]; return; }
+
+            // 解析 AI 返回的 JSON 对象 {方法名: 中文意思}
+            NSError *parseErr;
+            NSDictionary *transMap = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&parseErr];
+            if (parseErr || !transMap) { [self showToast:@"AI 返回格式错误"]; return; }
+
+            // 写回模型缓存 + 持久化到本地
+            NSUInteger hit = 0;
+            for (DHScannerResult *r in results) {
+                NSString *zh = transMap[r.methodName];
+                if (zh && [zh isKindOfClass:[NSString class]]) {
+                    r.dh_translation = zh;
+                    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+                    [DHAIManager setTranslation:zh forKey:cacheKey];
+                    hit++;
+                }
+            }
+            [self.tableView reloadData];
+            [self showToast:[NSString stringWithFormat:@"翻译完成，命中%lu条", (unsigned long)hit]];
+        });
+    }];
+    [task resume];
 }
 
 - (void)batchCopy {
@@ -1240,6 +1524,7 @@
                 @{@"title": @"数据分析",     @"icon": @"chart.bar.fill", @"action": @"openDataMonitor"},
                 @{@"title": @"补丁管理",     @"icon": @"puzzlepiece.fill", @"action": @"openPatches"},
                 @{@"title": @"关键词词库",   @"icon": @"text.badge.star", @"action": @"openKeywords"},
+                @{@"title": @"AI 配置中心",   @"icon": @"cpu", @"action": @"openAIConfig"},
                 @{@"title": @"网络规则",     @"icon": @"network", @"action": @"openNetworkRules"},
                 @{@"title": @"全局扫描",     @"icon": @"magnifyingglass.circle.fill", @"action": @"openGlobalScan"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
@@ -1298,6 +1583,9 @@
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openKeywords"]) {
         DHKeywordFolderVC *vc = [DHKeywordFolderVC new];
+        [self.navigationController pushViewController:vc animated:YES];
+    } else if ([action isEqualToString:@"openAIConfig"]) {
+        DHAIConfigVC *vc = [DHAIConfigVC new];
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openGlobalScan"]) {
         [self runFullScan];
