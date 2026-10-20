@@ -743,20 +743,23 @@
     self.modelField.font = [UIFont systemFontOfSize:14];
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 4; }
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
     if (s == 0) return 1;
     if (s == 1) return 3;
-    return 1;
+    if (s == 2) return 1;
+    return 2;
 }
 - (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
     if (s == 0) return @"API KEY";
     if (s == 1) return @"接口设置";
+    if (s == 3) return @"翻译缓存";
     return nil;
 }
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s {
     if (s == 0) return @"API Key 仅保存在本地，不会上传到任何服务器。";
     if (s == 1) return @"Base URL 填到 /v1 即可，路径填 /chat/completions。两个会自动拼接成完整请求地址。";
+    if (s == 3) return @"导出后可备份到文件 app，重装后导入恢复所有翻译记录。";
     return nil;
 }
 
@@ -784,11 +787,23 @@
             self.modelField.frame = CGRectMake(16, 0, w - 16, 44);
             [c.contentView addSubview:self.modelField];
         }
-    } else {
+    } else if (ip.section == 2) {
         c.textLabel.text = @"🧪 测试连接";
         c.textLabel.font = [UIFont systemFontOfSize:16];
         c.textLabel.textAlignment = NSTextAlignmentCenter;
         c.textLabel.textColor = [UIColor systemBlueColor];
+    } else {
+        if (ip.row == 0) {
+            c.textLabel.text = @"📤 导出翻译缓存";
+            c.textLabel.font = [UIFont systemFontOfSize:16];
+            c.textLabel.textAlignment = NSTextAlignmentCenter;
+            c.textLabel.textColor = [UIColor systemBlueColor];
+        } else {
+            c.textLabel.text = @"📥 导入翻译缓存";
+            c.textLabel.font = [UIFont systemFontOfSize:16];
+            c.textLabel.textAlignment = NSTextAlignmentCenter;
+            c.textLabel.textColor = [UIColor systemBlueColor];
+        }
     }
     return c;
 }
@@ -797,7 +812,48 @@
     [t deselectRowAtIndexPath:ip animated:YES];
     if (ip.section == 2) {
         [self testConnection];
+    } else if (ip.section == 3) {
+        if (ip.row == 0) {
+            [self exportTranslationCache];
+        } else {
+            [self importTranslationCache];
+        }
     }
+}
+
+- (void)exportTranslationCache {
+    NSString *cachePath = [DHAIManager translationCachePath];
+    NSURL *fileURL = [NSURL fileURLWithPath:cachePath];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
+        [self showToast:@"还没有翻译记录可导出"];
+        return;
+    }
+    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
+    [self presentViewController:activityVC animated:YES completion:nil];
+}
+
+- (void)importTranslationCache {
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.plist"] inMode:UIDocumentPickerModeImport];
+    picker.delegate = (id)self;
+    picker.allowsMultipleSelection = NO;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    if (urls.count == 0) return;
+    NSURL *url = urls[0];
+    NSError *err;
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfURL:url error:&err];
+    if (err || !dict) {
+        [self showToast:@"导入失败：文件格式错误"];
+        return;
+    }
+    // 合并到本地缓存
+    NSString *cachePath = [DHAIManager translationCachePath];
+    NSMutableDictionary *local = [NSMutableDictionary dictionaryWithContentsOfFile:cachePath] ?: [NSMutableDictionary new];
+    [local addEntriesFromDictionary:dict];
+    [local writeToFile:cachePath atomically:YES];
+    [self showToast:[NSString stringWithFormat:@"导入成功，共%lu条翻译", (unsigned long)local.count]];
 }
 
 - (NSString *)fullAPIURL {
@@ -1648,6 +1704,8 @@
     // 立即应用新hook
     for (DHHookInfo *h in newHooks) [[DHHookManager sharedManager] applyHook:h];
     [self showToast:[NSString stringWithFormat:@"批量处理%lu个补丁", (long)added]];
+    // 批量补丁完成后，清空所有勾选
+    [_selectedSet removeAllObjects];
     [self.tableView reloadData];
 }
 @end
