@@ -1532,6 +1532,11 @@
     NSArray *activeRegexes = _activeRegexes;
     _searchDebounce = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *t) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            // 一次性读整个翻译缓存，避免逐个方法读plist导致慢
+            NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+            NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
+            NSDictionary *transCache = [NSDictionary dictionaryWithContentsOfFile:cachePath] ?: @{};
+
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
                 // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
@@ -1552,9 +1557,9 @@
                 }
                 // 搜索框关键词（类名/方法名/翻译名）
                 if (kw.length) {
-                    // 先读翻译缓存
+                    // 直接从缓存字典查，不逐个读文件
                     NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
-                    NSString *trans = [DHAIManager translationForKey:cacheKey] ?: @"";
+                    NSString *trans = transCache[cacheKey] ?: @"";
                     BOOL matchClass = [r.className.lowercaseString containsString:kw];
                     BOOL matchMethod = [r.methodName.lowercaseString containsString:kw];
                     BOOL matchTrans = [trans containsString:searchText];
