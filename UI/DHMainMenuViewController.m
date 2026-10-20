@@ -1776,7 +1776,83 @@
     [super viewDidLoad];
     self.title = @"iOS调试助手";
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
+    [self setupDefaultKeywordFolders];
     [self buildMenu];
+}
+
+- (void)setupDefaultKeywordFolders {
+    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[];
+    NSMutableArray *existingNames = [NSMutableArray new];
+    for (NSDictionary *f in existing) [existingNames addObject:f[@"name"]];
+
+    NSMutableArray *toAdd = [NSMutableArray new];
+
+    // 正则词库 4 个
+    if (![existingNames containsObject:@"[正则]定时器 / 计时器 / 轮询"]) {
+        [toAdd addObject:@{
+            @"name": @"[正则]定时器 / 计时器 / 轮询",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|schedule|delay|clear|fire|invalidate|tick|trigger|timeout|poll|loop|wait|sleep|reset|restart|pause|resume|count).*(timer|countdown|interval|delay|timeout|tick|polling|heartbeat|schedule|task|alarm|dispatch|handler|coroutine|loop|wait|sleep|duration|elapsed).*",
+            @"isRegex": @YES,
+        }];
+    }
+    if (![existingNames containsObject:@"[正则]音视频处理 / 播放 / 录制"]) {
+        [toAdd addObject:@{
+            @"name": @"[正则]音视频处理 / 播放 / 录制",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|play|pause|resume|seek|record|capture|save|render|compress|trim|crop|cut|split|merge|export|import|download|upload|stream|mute|unmute|scale|resize|rotate|dial).*(video|audio|voice|sound|music|media|player|recorder|stream|render|frame|codec|compress|trim|crop|volume|mute|speaker|microphone|mic|camera|subtitle|caption).*",
+            @"isRegex": @YES,
+        }];
+    }
+    if (![existingNames containsObject:@"[正则]通话业务 / 语音计费"]) {
+        [toAdd addObject:@{
+            @"name": @"[正则]通话业务 / 语音计费",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|end|hangup|answer|accept|reject|decline|hold|unhold|deduct|charge|consume|calculate|count|dial).*(call|dial|phone|voice|speaker|microphone|balance|coin|diamond|credit|fee|price|rate|cost|billing|charge|duration|time|minute|second|hold|mute|hangup).*",
+            @"isRegex": @YES,
+        }];
+    }
+    if (![existingNames containsObject:@"[正则]送礼 / 打赏 / 虚拟礼物"]) {
+        [toAdd addObject:@{
+            @"name": @"[正则]送礼 / 打赏 / 虚拟礼物",
+            @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|select|send|give|receive|play|calculate|deduct|charge|consume|animate).*(gift|present|tip|reward|combo|animation|effect|panel|sender|receiver|balance|coin|diamond|price|cost|count|list).*",
+            @"isRegex": @YES,
+        }];
+    }
+
+    // 普通词库 4 个
+    if (![existingNames containsObject:@"[词库]定时器/计时器/轮询/心跳/调度"]) {
+        [toAdd addObject:@{
+            @"name": @"[词库]定时器/计时器/轮询/心跳/调度",
+            @"content": @"Timer，NSTimer，CADisplayLink，DispatchSourceTimer，CountDownTimer，Handler，TimerTask，ScheduledExecutorService，AlarmManager，RxTimer，TimerManager，TimerUtil，TimerHelper，HeartbeatManager，PollingManager，TimerTaskManager，CountDownUtil，isTimerRunning，isTimerActive，isTimerValid，isCountdownRunning，isTimeout，hasTimeout，checkTimeout，isTimeUp，getTimer，getTimerState，getInterval，getDelay，getPeriod，getTick，getElapsedTime，getRemainingTime，getCallDuration，getStartTime，getEndTime，startTimer，stopTimer，pauseTimer，resumeTimer，cancelTimer，resetTimer，restartTimer，invalidateTimer，scheduleTimer，scheduleDelay，scheduleTask，scheduleAtFixedRate，startCountdown，stopCountdown，cancelCountdown，startPolling，stopPolling，startHeartbeat，stopHeartbeat，postDelayed，removeCallbacks，asyncAfter，onTick，onFinish，onTimerTick，onCountdownTick，tick，fire，invalidate，schedule，unschedule，clearTimeout，setTimeout，setInterval，clearInterval",
+            @"isRegex": @NO,
+        }];
+    }
+    if (![existingNames containsObject:@"[词库]音视频处理/播放/录制/剪辑/压缩"]) {
+        [toAdd addObject:@{
+            @"name": @"[词库]音视频处理/播放/录制/剪辑/压缩",
+            @"content": @"VideoPlayer，VideoView，VideoEditor，VideoCompressor，AudioPlayer，AudioRecorder，AudioManager，MediaPlayer，MediaRecorder，VideoRenderer，VideoEncoder，VideoDecoder，isVideo，hasVideo，isVideoValid，isVideoPlaying，isVideoPaused，isVideoStopped，isVideoEnded，isVideoLoading，isVideoBuffering，isVideoCompressed，isVideoMuted，isAudio，hasAudio，isAudioPlaying，isAudioPaused，isAudioMuted，isRecording，isMicrophoneOn，isSpeakerOn，getVideo，getVideoInfo，getVideoFormat，getVideoSize，getVideoResolution，getVideoBitrate，getVideoFrameRate，getAudio，getAudioInfo，getAudioDuration，getAudioFormat，getAudioVolume，getMedia，loadVideo，playVideo，pauseVideo，stopVideo，resumeVideo，seekVideo，restartVideo，downloadVideo，uploadVideo，exportVideo，importVideo，compressVideo，trimVideo，cropVideo，cutVideo，splitVideo，mergeVideo，rotateVideo，resizeVideo，scaleVideo，renderVideo，previewVideo，recordVideo，captureVideo，saveVideo，deleteVideo，shareVideo，playAudio，pauseAudio，stopAudio，resumeAudio，seekAudio，recordAudio，startRecord，stopRecord，setVideoQuality，setVideoSpeed，setVideoVolume，setVideoMute，setVideoResolution，setVideoBitrate，setAudioVolume，setAudioSpeed，setAudioQuality，setAudioMute，muteMicrophone，unmuteMicrophone，enableSpeaker，disableSpeaker",
+            @"isRegex": @NO,
+        }];
+    }
+    if (![existingNames containsObject:@"[词库]通话业务/语音计费/按时长扣费/拨号"]) {
+        [toAdd addObject:@{
+            @"name": @"[词库]通话业务/语音计费/按时长扣费/拨号",
+            @"content": @"CallManager，CallKit，CallBillingManager，CallChargeManager，VoiceEngine，VoiceCallBilling，AudioCallFee，isCall，hasCall，isCalling，isCallActive，isCallConnected，isCallEnded，isCallIncoming，isCallOutgoing，isCallMuted，isCallHeld，isCallBilling，hasCallBilling，isBillingActive，isCharging，isCallCharging，isBalanceEnoughForCall，isCallBalanceSufficient，isCallBillingReached，isNeedChargeCall，isCallTimeExceeded，isCallTimeout，getCallRate，getCallPrice，getCallPricePerMinute，getCallFee，getVoiceCallFee，getCallCost，getCallMinutePrice，getCallBalance，getCallDuration，getCallBillingDuration，getCallingTime，getRemainingCallTime，getCallStatus，getCallHistory，getCallerInfo，startCall，endCall，hangUp，answerCall，acceptCall，rejectCall，declineCall，muteCall，unmuteCall，holdCall，unholdCall，startCallTimer，startCallBilling，startCallCharging，stopCallTimer，stopCallBilling，stopCallCharging，pauseCallBilling，resumeCallBilling，calculateCallCost，calculateCallFee，calculateCallDuration，deductCallFee，deductCallCoin，deductCallDiamond，chargeCallFee，chargeCallCoin，chargeCallDiamond，consumeCallCoin，consumeCallDiamond，payForCall，payCallFee，checkCallTimeLimit，checkCallBalanceLimit，checkCallCostLimit",
+            @"isRegex": @NO,
+        }];
+    }
+    if (![existingNames containsObject:@"[词库]送礼/打赏/虚拟礼物/连击特效"]) {
+        [toAdd addObject:@{
+            @"name": @"[词库]送礼/打赏/虚拟礼物/连击特效",
+            @"content": @"GiftManager，GiftController，GiftPanel，GiftAnimator，GiftSender，GiftReceiver，GiftComboUtils，VirtualGift，LiveGift，SendGiftUtils，isGift，hasGift，isGiftAvailable，isGiftSelected，isGiftSent，isGiftSending，isGiftCombo，isComboActive，isComboTimeout，isEnoughBalanceForGift，isGiftAnimationPlaying，getGift，getGiftList，getGiftInfo，getGiftId，getGiftName，getGiftIcon，getGiftPrice，getGiftCost，getGiftCount，getGiftComboCount，getGiftSender，getGiftReceiver，getGiftHistory，getGiftBalance，getGiftAnimation，getGiftEffect，setGift，setGiftCount，setGiftComboCount，setGiftPrice，selectGift，sendGift，giveGift，sendVirtualGift，sendComboGift，sendGiftToUser，receiveGift，buyGift，purchaseGift，loadGiftList，loadGiftPanel，showGiftPanel，hideGiftPanel，showGiftAnimation，playGiftAnimation，showGiftEffect，playGiftEffect，hideGiftAnimation，clearGiftAnimation，startCombo，stopCombo，resetCombo，calculateGiftTotal，calculateGiftCost，calculateGiftPrice，deductGiftCoin，deductGiftDiamond，chargeGiftFee，consumeGiftCoin，payForGift，trackGiftSend，reportGiftSend",
+            @"isRegex": @NO,
+        }];
+    }
+
+    if (toAdd.count > 0) {
+        NSMutableArray *newArr = [NSMutableArray arrayWithArray:existing];
+        [newArr addObjectsFromArray:toAdd];
+        [[NSUserDefaults standardUserDefaults] setObject:newArr forKey:@"DHKeywordFolders"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
 }
 
 - (void)buildMenu {
