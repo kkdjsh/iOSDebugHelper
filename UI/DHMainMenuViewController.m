@@ -701,7 +701,6 @@
     self.title = @"AI 配置中心";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
     self.selectedPreset = -1;
-    self.tableView.style = UITableViewStyleInsetGrouped;
 
     NSMutableArray *presets = [NSMutableArray new];
     NSArray *data = @[
