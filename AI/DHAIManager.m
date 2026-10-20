@@ -132,7 +132,7 @@ static NSString *TranslationCachePath(void) {
 }
 
 + (void)saveTranslationCache:(NSDictionary *)dict {
-    [dict writeToFile:TranslationCachePath atomically:YES];
+    [dict writeToFile:TranslationCachePath() atomically:YES];
 }
 
 + (NSString *)translationForKey:(NSString *)key {
