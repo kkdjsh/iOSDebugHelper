@@ -856,7 +856,7 @@
     if (!self.apiKey.length) { [self showToast:@"请先填写 API Key"]; return; }
     [self showToast:@"正在测试连接..."];
     NSDictionary *body = @{
-        @"model": self.model.length ?: @"gpt-4o-mini",
+        @"model": self.model.length ? self.model : @"gpt-4o-mini",
         @"messages": @[@{@"role": @"user", @"content": @"hi"}],
         @"max_tokens": @5,
     };
