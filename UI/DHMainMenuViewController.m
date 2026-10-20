@@ -782,6 +782,7 @@
         DHAIPresetModel *p = self.presets[ip.row];
         c.textLabel.text = p.title;
         c.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+        c.textLabel.textColor = [UIColor labelColor]; // 重置颜色，防止cell重用残留
         c.detailTextLabel.text = p.subtitle;
         c.detailTextLabel.font = [UIFont systemFontOfSize:12];
         c.detailTextLabel.textColor = [UIColor grayColor];
@@ -834,7 +835,11 @@
     NSString *key = self.keyField.text;
     if (!url.length) { [self showToast:@"请先填写 API 地址"]; return; }
     if (!key.length) { [self showToast:@"请先填写 API Key"]; return; }
-    [self showToast:@"正在测试连接..."];
+    // 自动拼接 /chat/completions（如果用户只填了 Base URL）
+    if (![url hasSuffix:@"/chat/completions"]) {
+        url = [url stringByAppendingString:@"/chat/completions"];
+    }
+    [self showToast:[NSString stringWithFormat:@"正在测试连接: %@", url]];
     NSDictionary *body = @{
         @"model": self.modelField.text.length ? self.modelField.text : @"gpt-4o-mini",
         @"messages": @[@{@"role": @"user", @"content": @"hi"}],
@@ -1144,7 +1149,13 @@
         @"response_format": @{@"type": @"json_object"},
     };
 
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:cfg.apiURL]];
+    // 自动拼接 /chat/completions（如果用户只填了 Base URL）
+    NSString *apiURL = cfg.apiURL;
+    if (![apiURL hasSuffix:@"/chat/completions"]) {
+        apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
+    }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiURL]];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
