@@ -694,7 +694,7 @@
 @end
 
 #pragma mark - AI 配置中心
-@interface DHAIConfigVC : UITableViewController <UITextFieldDelegate>
+@interface DHAIConfigVC : UITableViewController <UITextFieldDelegate, UIDocumentPickerDelegate>
 @property (nonatomic, strong) UITextField *keyField;
 @property (nonatomic, strong) UITextField *baseURLField;
 @property (nonatomic, strong) UITextField *pathField;
@@ -822,7 +822,8 @@
 }
 
 - (void)exportTranslationCache {
-    NSString *cachePath = [DHAIManager translationCachePath];
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
     NSURL *fileURL = [NSURL fileURLWithPath:cachePath];
     if (![[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
         [self showToast:@"还没有翻译记录可导出"];
@@ -834,7 +835,7 @@
 
 - (void)importTranslationCache {
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.plist"] inMode:UIDocumentPickerModeImport];
-    picker.delegate = (id)self;
+    picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
 }
@@ -849,7 +850,8 @@
         return;
     }
     // 合并到本地缓存
-    NSString *cachePath = [DHAIManager translationCachePath];
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
     NSMutableDictionary *local = [NSMutableDictionary dictionaryWithContentsOfFile:cachePath] ?: [NSMutableDictionary new];
     [local addEntriesFromDictionary:dict];
     [local writeToFile:cachePath atomically:YES];
