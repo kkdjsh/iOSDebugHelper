@@ -941,6 +941,7 @@
     BOOL _filterBOOLOnly;
     BOOL _filterHasArgs;
     BOOL _filterSetPrefix; // 过滤掉 set 开头的方法
+    BOOL _filterVoidOnly; // 仅看 void 方法
     NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词（普通模式）
     NSArray<NSRegularExpression *> *_activeRegexes; // 闪电词库激活的正则模式
     BOOL _filterClassMethods;
@@ -1334,6 +1335,7 @@
         @"",
         _filterSystemClasses ? @"✓ 过滤系统类" : @"  过滤系统类",
         _filterBOOLOnly ? @"✓ 仅看BOOL方法" : @"  仅看BOOL方法",
+        _filterVoidOnly ? @"✓ 仅看void方法" : @"  仅看void方法",
         _filterHasArgs ? @"✓ 仅看带参方法" : @"  仅看带参方法",
         _filterSetPrefix ? @"✓ 过滤set开头" : @"  过滤set开头",
     ];
@@ -1343,8 +1345,9 @@
             if (i < 3) self->_searchScope = i;
             else if (i == 4) self->_filterSystemClasses = !self->_filterSystemClasses;
             else if (i == 5) self->_filterBOOLOnly = !self->_filterBOOLOnly;
-            else if (i == 6) self->_filterHasArgs = !self->_filterHasArgs;
-            else if (i == 7) self->_filterSetPrefix = !self->_filterSetPrefix;
+            else if (i == 6) self->_filterVoidOnly = !self->_filterVoidOnly;
+            else if (i == 7) self->_filterHasArgs = !self->_filterHasArgs;
+            else if (i == 8) self->_filterSetPrefix = !self->_filterSetPrefix;
             [self filterBtnTapped:btn]; // 刷新菜单
             [self applyFilter];
         }]];
@@ -1460,6 +1463,9 @@
     }
     if (_filterBOOLOnly) {
         if (![r.returnType caseInsensitiveCompare:@"bool"] == NSOrderedSame) return NO;
+    }
+    if (_filterVoidOnly) {
+        if (![r.returnType caseInsensitiveCompare:@"void"] == NSOrderedSame) return NO;
     }
     if (_filterHasArgs) {
         if (![r.methodName containsString:@":"]) return NO;
@@ -1618,17 +1624,59 @@
 
 - (void)batchPatchMenu {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"批量生成补丁" message:[NSString stringWithFormat:@"当前列表%lu条", (unsigned long)self.filteredResults.count] preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self chooseFolderThenBatch: DHHookReturnTrue];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self chooseFolderThenBatch: DHHookReturnFalse];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"批量设为空拦截 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 nil" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self chooseFolderThenBatch: DHHookReturnNil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"拦截 / 空实现 (void)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [self chooseFolderThenBatch: DHHookReturnVoid];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"返回 0" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self chooseFolderThenBatch: DHHookReturnZero];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"自定义字符串" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self showCustomStringInput];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"自定义数字" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self showCustomNumberInput];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)showCustomStringInput {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"自定义字符串" message:@"输入要返回的字符串内容" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *f) {
+        f.placeholder = @"如 success";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"下一步" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        NSString *text = alert.textFields[0].text ?: @"";
+        // 存到全局，批量补丁的时候用
+        [[NSUserDefaults standardUserDefaults] setObject:text forKey:@"DH_LastCustomString"];
+        [self chooseFolderThenBatch: DHHookReturnCustomString];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showCustomNumberInput {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"自定义数字" message:@"输入要返回的数字" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *f) {
+        f.placeholder = @"如 100";
+        f.keyboardType = UIKeyboardTypeNumberPad;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"下一步" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        NSString *text = alert.textFields[0].text ?: @"0";
+        [[NSUserDefaults standardUserDefaults] setObject:text forKey:@"DH_LastCustomNumber"];
+        [self chooseFolderThenBatch: DHHookReturnCustomNumber];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)chooseFolderThenBatch:(DHHookReturnType)type {
