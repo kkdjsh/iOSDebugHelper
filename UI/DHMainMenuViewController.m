@@ -689,9 +689,9 @@
 @interface DHAIConfigVC : UITableViewController <UITextFieldDelegate>
 @property (nonatomic, strong) NSArray<DHAIPresetModel *> *presets;
 @property (nonatomic, assign) NSInteger selectedPreset;
-@property (nonatomic, strong) UITextField *keyField;
-@property (nonatomic, strong) UITextField *urlField;
-@property (nonatomic, strong) UITextField *modelField;
+@property (nonatomic, copy) NSString *apiKey;
+@property (nonatomic, copy) NSString *apiURL;
+@property (nonatomic, copy) NSString *model;
 @end
 
 @implementation DHAIConfigVC
@@ -722,29 +722,16 @@
     self.presets = presets;
 
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    self.apiKey = cfg.apiKey ?: @"";
+    self.apiURL = cfg.apiURL ?: @"";
+    self.model = cfg.model ?: @"";
     for (NSInteger i = 0; i < presets.count; i++) {
         DHAIPresetModel *p = presets[i];
-        if ([p.apiURL isEqualToString:cfg.apiURL] && [p.model isEqualToString:cfg.model]) {
+        if ([p.apiURL isEqualToString:self.apiURL] && [p.model isEqualToString:self.model]) {
             self.selectedPreset = i;
             break;
         }
     }
-
-    self.keyField = [[UITextField alloc] init];
-    self.keyField.placeholder = @"sk-...";
-    self.keyField.text = cfg.apiKey;
-    self.keyField.secureTextEntry = YES;
-    self.keyField.font = [UIFont systemFontOfSize:14];
-
-    self.urlField = [[UITextField alloc] init];
-    self.urlField.placeholder = @"https://api.example.com/v1/chat/completions";
-    self.urlField.text = cfg.apiURL;
-    self.urlField.font = [UIFont systemFontOfSize:14];
-
-    self.modelField = [[UITextField alloc] init];
-    self.modelField.placeholder = @"模型名，如 gpt-4o";
-    self.modelField.text = cfg.model;
-    self.modelField.font = [UIFont systemFontOfSize:14];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
@@ -763,6 +750,8 @@
     static NSString *cid = @"AIConfigCell";
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:cid];
     if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cid];
+    // 清理之前加的 subviews
+    for (UIView *v in c.contentView.subviews) [v removeFromSuperview];
 
     if (ip.section == 0) {
         DHAIPresetModel *p = self.presets[ip.row];
@@ -773,30 +762,37 @@
         c.detailTextLabel.textColor = [UIColor grayColor];
         c.accessoryType = (ip.row == self.selectedPreset) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     } else if (ip.section == 1) {
-        c.textLabel.text = nil;
-        c.detailTextLabel.text = nil;
-        [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-        self.keyField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
-        self.keyField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [c.contentView addSubview:self.keyField];
+        c.textLabel.text = @"API Key";
+        c.textLabel.font = [UIFont systemFontOfSize:14];
+        if (self.apiKey.length > 8) {
+            c.detailTextLabel.text = [NSString stringWithFormat:@"%@...%@", [self.apiKey substringToIndex:6], [self.apiKey substringFromIndex:self.apiKey.length - 4]];
+        } else {
+            c.detailTextLabel.text = self.apiKey.length ? @"已填写" : @"未填写";
+        }
+        c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+        c.detailTextLabel.textColor = [UIColor grayColor];
+        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
         if (ip.row == 0) {
-            c.textLabel.text = nil;
-            [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-            self.urlField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
-            self.urlField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-            [c.contentView addSubview:self.urlField];
+            c.textLabel.text = @"API URL";
+            c.textLabel.font = [UIFont systemFontOfSize:14];
+            c.detailTextLabel.text = self.apiURL.length ? self.apiURL : @"未填写";
+            c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+            c.detailTextLabel.textColor = [UIColor grayColor];
         } else if (ip.row == 1) {
-            c.textLabel.text = nil;
-            [c.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-            self.modelField.frame = CGRectMake(16, 0, c.contentView.bounds.size.width - 32, 44);
-            self.modelField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-            [c.contentView addSubview:self.modelField];
+            c.textLabel.text = @"模型名";
+            c.textLabel.font = [UIFont systemFontOfSize:14];
+            c.detailTextLabel.text = self.model.length ? self.model : @"未填写";
+            c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+            c.detailTextLabel.textColor = [UIColor grayColor];
         } else {
             c.textLabel.text = @"🧪 测试连接";
+            c.textLabel.font = [UIFont systemFontOfSize:14];
             c.textLabel.textAlignment = NSTextAlignmentCenter;
             c.textLabel.textColor = [UIColor systemBlueColor];
+            c.detailTextLabel.text = nil;
         }
+        c.accessoryType = (ip.row == 2) ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
     }
     return c;
 }
@@ -806,39 +802,68 @@
     if (ip.section == 0) {
         self.selectedPreset = ip.row;
         DHAIPresetModel *p = self.presets[ip.row];
-        if (p.apiURL.length) self.urlField.text = p.apiURL;
-        if (p.model.length) self.modelField.text = p.model;
+        if (p.apiURL.length) self.apiURL = p.apiURL;
+        if (p.model.length) self.model = p.model;
         [t reloadData];
-    } else if (ip.section == 2 && ip.row == 2) {
-        [self testConnection];
+    } else if (ip.section == 1) {
+        [self showInputAlert:@"API Key" currentValue:self.apiKey placeholder:@"sk-..." secure:YES completion:^(NSString *v) {
+            self.apiKey = v;
+            [t reloadData];
+        }];
+    } else if (ip.section == 2) {
+        if (ip.row == 0) {
+            [self showInputAlert:@"API URL" currentValue:self.apiURL placeholder:@"https://api.example.com/v1/chat/completions" secure:NO completion:^(NSString *v) {
+                self.apiURL = v;
+                [t reloadData];
+            }];
+        } else if (ip.row == 1) {
+            [self showInputAlert:@"模型名" currentValue:self.model placeholder:@"gpt-4o-mini" secure:NO completion:^(NSString *v) {
+                self.model = v;
+                [t reloadData];
+            }];
+        } else {
+            [self testConnection];
+        }
     }
+}
+
+- (void)showInputAlert:(NSString *)title currentValue:(NSString *)current placeholder:(NSString *)placeholder secure:(BOOL)secure completion:(void(^)(NSString *))completion {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:title message:nil preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = current;
+        tf.placeholder = placeholder;
+        tf.secureTextEntry = secure;
+    }];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+        completion(a.textFields[0].text ?: @"");
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 
 - (void)save {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    cfg.apiKey = self.keyField.text ?: @"";
-    cfg.apiURL = self.urlField.text ?: @"";
-    cfg.model = self.modelField.text ?: @"";
+    cfg.apiKey = self.apiKey;
+    cfg.apiURL = self.apiURL;
+    cfg.model = self.model;
     [[DHAIManager sharedManager] saveConfig];
     [self showToast:@"配置已保存"];
     [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)testConnection {
-    NSString *url = self.urlField.text;
-    NSString *key = self.keyField.text;
-    if (!url.length) { [self showToast:@"请先填写 API 地址"]; return; }
-    if (!key.length) { [self showToast:@"请先填写 API Key"]; return; }
+    if (!self.apiURL.length) { [self showToast:@"请先填写 API 地址"]; return; }
+    if (!self.apiKey.length) { [self showToast:@"请先填写 API Key"]; return; }
     [self showToast:@"正在测试连接..."];
     NSDictionary *body = @{
-        @"model": self.modelField.text ?: @"gpt-4o-mini",
+        @"model": self.model.length ?: @"gpt-4o-mini",
         @"messages": @[@{@"role": @"user", @"content": @"hi"}],
         @"max_tokens": @5,
     };
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:self.apiURL]];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [req setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", self.apiKey] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     req.timeoutInterval = 15;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
@@ -893,8 +918,7 @@
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
         [[UIBarButtonItem alloc] initWithTitle:@"🤖AI翻译" style:UIBarButtonItemStylePlain target:self action:@selector(translateWithAI)],
     ];
-    self.tableView.rowHeight = UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight = 60;
+    self.tableView.rowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
     header.backgroundColor = [UIColor whiteColor];
@@ -969,17 +993,11 @@
         thirdLabel.textColor = [UIColor systemBlueColor];
         thirdLabel.numberOfLines = 1;
         thirdLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-        thirdLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [c.contentView addSubview:thirdLabel];
-        [NSLayoutConstraint activateConstraints:@[
-            [thirdLabel.leadingAnchor constraintEqualToAnchor:c.detailTextLabel.leadingAnchor],
-            [thirdLabel.trailingAnchor constraintEqualToAnchor:c.contentView.trailingAnchor constant:-40],
-            [thirdLabel.topAnchor constraintEqualToAnchor:c.detailTextLabel.bottomAnchor constant:2],
-            [thirdLabel.bottomAnchor constraintEqualToAnchor:c.contentView.bottomAnchor constant:-4],
-        ]];
     }
     thirdLabel.text = r.dh_translation;
     thirdLabel.hidden = (r.dh_translation.length == 0);
+    thirdLabel.frame = CGRectMake(16, 44, c.contentView.bounds.size.width - 56, 14);
 
     // 已存在的补丁高亮绿色
     NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
