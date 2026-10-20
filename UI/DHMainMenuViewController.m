@@ -861,6 +861,17 @@
 }
 
 - (void)showToast:(NSString *)msg {
+    // 先关闭之前的弹窗
+    if (self.presentedViewController) {
+        [self.presentedViewController dismissViewControllerAnimated:YES completion:^{
+            [self presentNewToast:msg];
+        }];
+    } else {
+        [self presentNewToast:msg];
+    }
+}
+
+- (void)presentNewToast:(NSString *)msg {
     UIAlertController *t = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:UIAlertControllerStyleAlert];
     [t addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:t animated:YES completion:nil];
@@ -1376,6 +1387,17 @@
 }
 
 - (void)showToast:(NSString *)msg {
+    // 先关闭之前的弹窗
+    if (self.presentedViewController) {
+        [self.presentedViewController dismissViewControllerAnimated:YES completion:^{
+            [self presentNewToast:msg];
+        }];
+    } else {
+        [self presentNewToast:msg];
+    }
+}
+
+- (void)presentNewToast:(NSString *)msg {
     UIAlertController *t = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:UIAlertControllerStyleAlert];
     [t addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:t animated:YES completion:nil];
