@@ -1372,60 +1372,60 @@
     NSMutableArray *toAdd = [NSMutableArray new];
 
     // 正则词库 4 个
-    if (![existingNames containsObject:@"定时器/计时器/轮询(正则)"]) {
+    if (![existingNames containsObject:@"[正则]定时器 / 计时器 / 轮询"]) {
         [toAdd addObject:@{
-            @"name": @"定时器/计时器/轮询(正则)",
+            @"name": @"[正则]定时器 / 计时器 / 轮询",
             @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|schedule|delay|clear|fire|invalidate|tick|trigger|timeout|poll|loop|wait|sleep|reset|restart|pause|resume|count).*(timer|countdown|interval|delay|timeout|tick|polling|heartbeat|schedule|task|alarm|dispatch|handler|coroutine|loop|wait|sleep|duration|elapsed).*",
             @"isRegex": @YES,
         }];
     }
-    if (![existingNames containsObject:@"音视频处理/播放/录制(正则)"]) {
+    if (![existingNames containsObject:@"[正则]音视频处理 / 播放 / 录制"]) {
         [toAdd addObject:@{
-            @"name": @"音视频处理/播放/录制(正则)",
+            @"name": @"[正则]音视频处理 / 播放 / 录制",
             @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|play|pause|resume|seek|record|capture|save|render|compress|trim|crop|cut|split|merge|export|import|download|upload|stream|mute|unmute|scale|resize|rotate|dial).*(video|audio|voice|sound|music|media|player|recorder|stream|render|frame|codec|compress|trim|crop|volume|mute|speaker|microphone|mic|camera|subtitle|caption).*",
             @"isRegex": @YES,
         }];
     }
-    if (![existingNames containsObject:@"通话业务/语音计费(正则)"]) {
+    if (![existingNames containsObject:@"[正则]通话业务 / 语音计费"]) {
         [toAdd addObject:@{
-            @"name": @"通话业务/语音计费(正则)",
+            @"name": @"[正则]通话业务 / 语音计费",
             @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|end|hangup|answer|accept|reject|decline|hold|unhold|deduct|charge|consume|calculate|count|dial).*(call|dial|phone|voice|speaker|microphone|balance|coin|diamond|credit|fee|price|rate|cost|billing|charge|duration|time|minute|second|hold|mute|hangup).*",
             @"isRegex": @YES,
         }];
     }
-    if (![existingNames containsObject:@"送礼/打赏/虚拟礼物(正则)"]) {
+    if (![existingNames containsObject:@"[正则]送礼 / 打赏 / 虚拟礼物"]) {
         [toAdd addObject:@{
-            @"name": @"送礼/打赏/虚拟礼物(正则)",
+            @"name": @"[正则]送礼 / 打赏 / 虚拟礼物",
             @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|select|send|give|receive|play|calculate|deduct|charge|consume|animate).*(gift|present|tip|reward|combo|animation|effect|panel|sender|receiver|balance|coin|diamond|price|cost|count|list).*",
             @"isRegex": @YES,
         }];
     }
 
     // 普通词库 4 个
-    if (![existingNames containsObject:@"定时器/计时器/轮询(普通)"]) {
+    if (![existingNames containsObject:@"[词库]定时器/计时器/轮询/心跳/调度"]) {
         [toAdd addObject:@{
-            @"name": @"定时器/计时器/轮询(普通)",
+            @"name": @"[词库]定时器/计时器/轮询/心跳/调度",
             @"content": @"Timer\nNSTimer\nCADisplayLink\nDispatchSourceTimer\nCountDownTimer\nHandler\nTimerTask\nScheduledExecutorService\nAlarmManager\nRxTimer\nTimerManager\nTimerUtil\nTimerHelper\nHeartbeatManager\nPollingManager\nTimerTaskManager\nCountDownUtil\nisTimerRunning\nisTimerActive\nisTimerValid\nisCountdownRunning\nisTimeout\nhasTimeout\ncheckTimeout\nisTimeUp\ngetTimer\ngetTimerState\ngetInterval\ngetDelay\ngetPeriod\ngetTick\ngetElapsedTime\ngetRemainingTime\ngetCallDuration\ngetStartTime\ngetEndTime\nstartTimer\nstopTimer\npauseTimer\nresumeTimer\ncancelTimer\nresetTimer\nrestartTimer\ninvalidateTimer\nscheduleTimer\nscheduleDelay\nscheduleTask\nscheduleAtFixedRate\nstartCountdown\nstopCountdown\ncancelCountdown\nstartPolling\nstopPolling\nstartHeartbeat\nstopHeartbeat\npostDelayed\nremoveCallbacks\nasyncAfter\nonTick\nonFinish\nonTimerTick\nonCountdownTick\ntick\nfire\ninvalidate\nschedule\nunschedule\nclearTimeout\nsetTimeout\nsetInterval\nclearInterval",
             @"isRegex": @NO,
         }];
     }
-    if (![existingNames containsObject:@"音视频处理/播放/录制(普通)"]) {
+    if (![existingNames containsObject:@"[词库]音视频处理/播放/录制/剪辑/压缩"]) {
         [toAdd addObject:@{
-            @"name": @"音视频处理/播放/录制(普通)",
+            @"name": @"[词库]音视频处理/播放/录制/剪辑/压缩",
             @"content": @"VideoPlayer\nVideoView\nVideoEditor\nVideoCompressor\nAudioPlayer\nAudioRecorder\nAudioManager\nMediaPlayer\nMediaRecorder\nVideoRenderer\nVideoEncoder\nVideoDecoder\nisVideo\nhasVideo\nisVideoValid\nisVideoPlaying\nisVideoPaused\nisVideoStopped\nisVideoEnded\nisVideoLoading\nisVideoBuffering\nisVideoCompressed\nisVideoMuted\nisAudio\nhasAudio\nisAudioPlaying\nisAudioPaused\nisAudioMuted\nisRecording\nisMicrophoneOn\nisSpeakerOn\ngetVideo\ngetVideoInfo\ngetVideoFormat\ngetVideoSize\ngetVideoResolution\ngetVideoBitrate\ngetVideoFrameRate\ngetAudio\ngetAudioInfo\ngetAudioDuration\ngetAudioFormat\ngetAudioVolume\ngetMedia\nloadVideo\nplayVideo\npauseVideo\nstopVideo\nresumeVideo\nseekVideo\nrestartVideo\ndownloadVideo\nuploadVideo\nexportVideo\nimportVideo\ncompressVideo\ntrimVideo\ncropVideo\ncutVideo\nsplitVideo\nmergeVideo\nrotateVideo\nresizeVideo\nscaleVideo\nrenderVideo\npreviewVideo\nrecordVideo\ncaptureVideo\nsaveVideo\ndeleteVideo\nshareVideo\nplayAudio\npauseAudio\nstopAudio\nresumeAudio\nseekAudio\nrecordAudio\nstartRecord\nstopRecord\nsetVideoQuality\nsetVideoSpeed\nsetVideoVolume\nsetVideoMute\nsetVideoResolution\nsetVideoBitrate\nsetAudioVolume\nsetAudioSpeed\nsetAudioQuality\nsetAudioMute\nmuteMicrophone\nunmuteMicrophone\nenableSpeaker\ndisableSpeaker",
             @"isRegex": @NO,
         }];
     }
-    if (![existingNames containsObject:@"通话业务/语音计费(普通)"]) {
+    if (![existingNames containsObject:@"[词库]通话业务/语音计费/按时长扣费/拨号"]) {
         [toAdd addObject:@{
-            @"name": @"通话业务/语音计费(普通)",
+            @"name": @"[词库]通话业务/语音计费/按时长扣费/拨号",
             @"content": @"CallManager\nCallKit\nCallBillingManager\nCallChargeManager\nVoiceEngine\nVoiceCallBilling\nAudioCallFee\nisCall\nhasCall\nisCalling\nisCallActive\nisCallConnected\nisCallEnded\nisCallIncoming\nisCallOutgoing\nisCallMuted\nisCallHeld\nisCallBilling\nhasCallBilling\nisBillingActive\nisCharging\nisCallCharging\nisBalanceEnoughForCall\nisCallBalanceSufficient\nisCallBillingReached\nisNeedChargeCall\nisCallTimeExceeded\nisCallTimeout\ngetCallRate\ngetCallPrice\ngetCallPricePerMinute\ngetCallFee\ngetVoiceCallFee\ngetCallCost\ngetCallMinutePrice\ngetCallBalance\ngetCallDuration\ngetCallBillingDuration\ngetCallingTime\ngetRemainingCallTime\ngetCallStatus\ngetCallHistory\ngetCallerInfo\nstartCall\nendCall\nhangUp\nanswerCall\nacceptCall\nrejectCall\ndeclineCall\nmuteCall\nunmuteCall\nholdCall\nunholdCall\nstartCallTimer\nstartCallBilling\nstartCallCharging\nstopCallTimer\nstopCallBilling\nstopCallCharging\npauseCallBilling\nresumeCallBilling\ncalculateCallCost\ncalculateCallFee\ncalculateCallDuration\ndeductCallFee\ndeductCallCoin\ndeductCallDiamond\nchargeCallFee\nchargeCallCoin\nchargeCallDiamond\nconsumeCallCoin\nconsumeCallDiamond\npayForCall\npayCallFee\ncheckCallTimeLimit\ncheckCallBalanceLimit\ncheckCallCostLimit",
             @"isRegex": @NO,
         }];
     }
-    if (![existingNames containsObject:@"送礼/打赏/虚拟礼物(普通)"]) {
+    if (![existingNames containsObject:@"[词库]送礼/打赏/虚拟礼物/连击特效"]) {
         [toAdd addObject:@{
-            @"name": @"送礼/打赏/虚拟礼物(普通)",
+            @"name": @"[词库]送礼/打赏/虚拟礼物/连击特效",
             @"content": @"GiftManager\nGiftController\nGiftPanel\nGiftAnimator\nGiftSender\nGiftReceiver\nGiftComboUtils\nVirtualGift\nLiveGift\nSendGiftUtils\nisGift\nhasGift\nisGiftAvailable\nisGiftSelected\nisGiftSent\nisGiftSending\nisGiftCombo\nisComboActive\nisComboTimeout\nisEnoughBalanceForGift\nisGiftAnimationPlaying\ngetGift\ngetGiftList\ngetGiftInfo\ngetGiftId\ngetGiftName\ngetGiftIcon\ngetGiftPrice\ngetGiftCost\ngetGiftCount\ngetGiftComboCount\ngetGiftSender\ngetGiftReceiver\ngetGiftHistory\ngetGiftBalance\ngetGiftAnimation\ngetGiftEffect\nsetGift\nsetGiftCount\nsetGiftComboCount\nsetGiftPrice\nselectGift\nsendGift\ngiveGift\nsendVirtualGift\nsendComboGift\nsendGiftToUser\nreceiveGift\nbuyGift\npurchaseGift\nloadGiftList\nloadGiftPanel\nshowGiftPanel\nhideGiftPanel\nshowGiftAnimation\nplayGiftAnimation\nshowGiftEffect\nplayGiftEffect\nhideGiftAnimation\nclearGiftAnimation\nstartCombo\nstopCombo\nresetCombo\ncalculateGiftTotal\ncalculateGiftCost\ncalculateGiftPrice\ndeductGiftCoin\ndeductGiftDiamond\nchargeGiftFee\nconsumeGiftCoin\npayForGift\ntrackGiftSend\nreportGiftSend",
             @"isRegex": @NO,
         }];
