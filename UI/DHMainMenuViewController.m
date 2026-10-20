@@ -1122,12 +1122,29 @@
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
     // 取当前列表全部方法名，一次发给AI
+    // 先查本地缓存，已经翻译过的跳过，只发新的
     NSMutableArray<NSString *> *methodList = [NSMutableArray new];
+    NSInteger skipped = 0;
     for (DHScannerResult *r in results) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
+        NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+        NSString *cached = [DHAIManager translationForKey:cacheKey];
+        if (cached.length > 0) {
+            // 已经有缓存了，直接用，不发请求
+            r.dh_translation = cached;
+            skipped++;
+            continue;
+        }
         [methodList addObject:r.methodName];
     }
-    if (methodList.count == 0) { [self showToast:@"无可翻译的方法"]; return; }
+    if (methodList.count == 0) {
+        [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
+        [self.tableView reloadData];
+        return;
+    }
+    if (skipped > 0) {
+        [self showToast:[NSString stringWithFormat:@"跳过已翻译%ld条，新翻译%ld条", (long)skipped, (long)methodList.count]];
+    }
 
     [self showToast:@"🤖 AI 翻译中..."];
 
