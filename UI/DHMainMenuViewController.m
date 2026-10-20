@@ -183,6 +183,23 @@
     c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryNone;
+
+    // 第三行：AI 翻译结果（从本地缓存读）
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", h.className, h.selectorName];
+    NSString *translation = [DHAIManager translationForKey:cacheKey];
+    UILabel *thirdLabel = [c.contentView viewWithTag:999];
+    if (!thirdLabel) {
+        thirdLabel = [[UILabel alloc] init];
+        thirdLabel.tag = 999;
+        thirdLabel.font = [UIFont systemFontOfSize:10];
+        thirdLabel.textColor = [UIColor systemBlueColor];
+        thirdLabel.numberOfLines = 1;
+        thirdLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        [c.contentView addSubview:thirdLabel];
+    }
+    thirdLabel.text = translation;
+    thirdLabel.hidden = (translation.length == 0);
+    thirdLabel.frame = CGRectMake(16, 44, c.contentView.bounds.size.width - 56, 14);
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = h.enabled;
     sw.tag = ip.row;
@@ -677,20 +694,10 @@
 @end
 
 #pragma mark - AI 配置中心
-@interface DHAIPresetModel : NSObject
-@property (nonatomic, copy) NSString *title;
-@property (nonatomic, copy) NSString *subtitle;
-@property (nonatomic, copy) NSString *apiURL;
-@property (nonatomic, copy) NSString *model;
-@end
-@implementation DHAIPresetModel
-@end
-
 @interface DHAIConfigVC : UITableViewController <UITextFieldDelegate>
-@property (nonatomic, strong) NSArray<DHAIPresetModel *> *presets;
-@property (nonatomic, assign) NSInteger selectedPreset;
 @property (nonatomic, strong) UITextField *keyField;
-@property (nonatomic, strong) UITextField *urlField;
+@property (nonatomic, strong) UITextField *baseURLField;
+@property (nonatomic, strong) UITextField *pathField;
 @property (nonatomic, strong) UITextField *modelField;
 @end
 
@@ -700,35 +707,8 @@
     [super viewDidLoad];
     self.title = @"AI 配置中心";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone target:self action:@selector(save)];
-    self.selectedPreset = -1;
-
-    NSMutableArray *presets = [NSMutableArray new];
-    NSArray *data = @[
-        @{@"title": @"DeepSeek Chat",       @"subtitle": @"DeepSeek · deepseek-chat",        @"url": @"https://api.deepseek.com/chat/completions",                @"model": @"deepseek-chat"},
-        @{@"title": @"DeepSeek Reasoner",   @"subtitle": @"DeepSeek · deepseek-reasoner",    @"url": @"https://api.deepseek.com/chat/completions",                @"model": @"deepseek-reasoner"},
-        @{@"title": @"OpenAI GPT-4o",       @"subtitle": @"OpenAI · gpt-4o",                 @"url": @"https://api.openai.com/v1/chat/completions",              @"model": @"gpt-4o"},
-        @{@"title": @"OpenAI GPT-4o-mini",  @"subtitle": @"OpenAI · gpt-4o-mini",            @"url": @"https://api.openai.com/v1/chat/completions",              @"model": @"gpt-4o-mini"},
-        @{@"title": @"Claude 3.5 Sonnet",   @"subtitle": @"Anthropic · claude-3-5-sonnet-20241022", @"url": @"https://api.anthropic.com/v1/messages",              @"model": @"claude-3-5-sonnet-20241022"},
-        @{@"title": @"Gemini 2.0 Flash",    @"subtitle": @"Google · gemini-2.0-flash",       @"url": @"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", @"model": @"gemini-2.0-flash"},
-        @{@"title": @"通义千问 (Qwen)",     @"subtitle": @"阿里云 · qwen-plus",              @"url": @"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", @"model": @"qwen-plus"},
-        @{@"title": @"自定义接口 (Custom)",  @"subtitle": @"Custom · 自定义",                  @"url": @"",                                                         @"model": @""},
-    ];
-    for (NSDictionary *d in data) {
-        DHAIPresetModel *m = [DHAIPresetModel new];
-        m.title = d[@"title"]; m.subtitle = d[@"subtitle"];
-        m.apiURL = d[@"url"]; m.model = d[@"model"];
-        [presets addObject:m];
-    }
-    self.presets = presets;
 
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    for (NSInteger i = 0; i < presets.count; i++) {
-        DHAIPresetModel *p = presets[i];
-        if ([p.apiURL isEqualToString:cfg.apiURL] && [p.model isEqualToString:cfg.model]) {
-            self.selectedPreset = i;
-            break;
-        }
-    }
 
     self.keyField = [[UITextField alloc] init];
     self.keyField.placeholder = @"sk-...";
@@ -736,34 +716,47 @@
     self.keyField.secureTextEntry = YES;
     self.keyField.font = [UIFont systemFontOfSize:14];
 
-    self.urlField = [[UITextField alloc] init];
-    self.urlField.placeholder = @"https://api.example.com/v1/chat/completions";
-    self.urlField.text = cfg.apiURL;
-    self.urlField.font = [UIFont systemFontOfSize:14];
+    // 把 apiURL 拆成 baseURL + path
+    NSString *fullURL = cfg.apiURL ?: @"";
+    NSString *baseURL = fullURL;
+    NSString *path = @"/chat/completions";
+    if ([fullURL hasSuffix:@"/chat/completions"]) {
+        baseURL = [fullURL substringToIndex:fullURL.length - @"/chat/completions".length];
+    } else if ([fullURL containsString:@"/chat/completions"]) {
+        NSRange range = [fullURL rangeOfString:@"/chat/completions"];
+        baseURL = [fullURL substringToIndex:range.location];
+    }
+
+    self.baseURLField = [[UITextField alloc] init];
+    self.baseURLField.placeholder = @"https://api.example.com/v1";
+    self.baseURLField.text = baseURL;
+    self.baseURLField.font = [UIFont systemFontOfSize:14];
+
+    self.pathField = [[UITextField alloc] init];
+    self.pathField.placeholder = @"/chat/completions";
+    self.pathField.text = path;
+    self.pathField.font = [UIFont systemFontOfSize:14];
 
     self.modelField = [[UITextField alloc] init];
-    self.modelField.placeholder = @"gpt-4o-mini";
+    self.modelField.placeholder = @"deepseek-chat";
     self.modelField.text = cfg.model;
     self.modelField.font = [UIFont systemFontOfSize:14];
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 4; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
-    if (s == 0) return self.presets.count;
-    if (s == 1) return 1;
-    if (s == 2) return 2;
+    if (s == 0) return 1;
+    if (s == 1) return 3;
     return 1;
 }
 - (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
-    if (s == 0) return @"选择 AI 模型";
-    if (s == 1) return @"API KEY";
-    if (s == 2) return @"高级设置（可选）";
+    if (s == 0) return @"API KEY";
+    if (s == 1) return @"接口设置";
     return nil;
 }
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s {
-    if (s == 0) return @"选择预设模型后会自动填充 API 地址和模型名。选\"自定义接口\"可填写任意兼容 OpenAI 格式的接口。";
-    if (s == 1) return @"API Key 仅保存在本地，不会上传到任何服务器。";
-    if (s == 2) return @"如果选了预设模型，这里会自动填充。选了\"自定义接口\"则需手动填写。";
+    if (s == 0) return @"API Key 仅保存在本地，不会上传到任何服务器。";
+    if (s == 1) return @"Base URL 填到 /v1 即可，路径填 /chat/completions。两个会自动拼接成完整请求地址。";
     return nil;
 }
 
@@ -771,7 +764,6 @@
     static NSString *cid = @"AIConfigCell";
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:cid];
     if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cid];
-    // 清理之前加的 subviews
     for (UIView *v in c.contentView.subviews) [v removeFromSuperview];
     c.textLabel.text = nil;
     c.detailTextLabel.text = nil;
@@ -779,21 +771,15 @@
     CGFloat w = [UIScreen mainScreen].bounds.size.width - 32;
 
     if (ip.section == 0) {
-        DHAIPresetModel *p = self.presets[ip.row];
-        c.textLabel.text = p.title;
-        c.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-        c.textLabel.textColor = [UIColor labelColor]; // 重置颜色，防止cell重用残留
-        c.detailTextLabel.text = p.subtitle;
-        c.detailTextLabel.font = [UIFont systemFontOfSize:12];
-        c.detailTextLabel.textColor = [UIColor grayColor];
-        c.accessoryType = (ip.row == self.selectedPreset) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-    } else if (ip.section == 1) {
         self.keyField.frame = CGRectMake(16, 0, w - 16, 44);
         [c.contentView addSubview:self.keyField];
-    } else if (ip.section == 2) {
+    } else if (ip.section == 1) {
         if (ip.row == 0) {
-            self.urlField.frame = CGRectMake(16, 0, w - 16, 44);
-            [c.contentView addSubview:self.urlField];
+            self.baseURLField.frame = CGRectMake(16, 0, w - 16, 44);
+            [c.contentView addSubview:self.baseURLField];
+        } else if (ip.row == 1) {
+            self.pathField.frame = CGRectMake(16, 0, w - 16, 44);
+            [c.contentView addSubview:self.pathField];
         } else {
             self.modelField.frame = CGRectMake(16, 0, w - 16, 44);
             [c.contentView addSubview:self.modelField];
@@ -809,21 +795,23 @@
 
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
-    if (ip.section == 0) {
-        self.selectedPreset = ip.row;
-        DHAIPresetModel *p = self.presets[ip.row];
-        if (p.apiURL.length) self.urlField.text = p.apiURL;
-        if (p.model.length) self.modelField.text = p.model;
-        [t reloadData];
-    } else if (ip.section == 3) {
+    if (ip.section == 2) {
         [self testConnection];
     }
+}
+
+- (NSString *)fullAPIURL {
+    NSString *base = self.baseURLField.text ?: @"";
+    NSString *path = self.pathField.text ?: @"/chat/completions";
+    if ([base hasSuffix:@"/"]) base = [base substringToIndex:base.length - 1];
+    if (![path hasPrefix:@"/"]) path = [NSString stringWithFormat:@"/%@", path];
+    return [NSString stringWithFormat:@"%@%@", base, path];
 }
 
 - (void)save {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
     cfg.apiKey = self.keyField.text ?: @"";
-    cfg.apiURL = self.urlField.text ?: @"";
+    cfg.apiURL = [self fullAPIURL];
     cfg.model = self.modelField.text ?: @"";
     [[DHAIManager sharedManager] saveConfig];
     [self showToast:@"配置已保存"];
@@ -831,17 +819,13 @@
 }
 
 - (void)testConnection {
-    NSString *url = self.urlField.text;
+    NSString *url = [self fullAPIURL];
     NSString *key = self.keyField.text;
-    if (!url.length) { [self showToast:@"请先填写 API 地址"]; return; }
+    if (!self.baseURLField.text.length) { [self showToast:@"请先填写 Base URL"]; return; }
     if (!key.length) { [self showToast:@"请先填写 API Key"]; return; }
-    // 自动拼接 /chat/completions（如果用户只填了 Base URL）
-    if (![url hasSuffix:@"/chat/completions"]) {
-        url = [url stringByAppendingString:@"/chat/completions"];
-    }
-    [self showToast:[NSString stringWithFormat:@"正在测试连接: %@", url]];
+    [self showToast:[NSString stringWithFormat:@"正在测试: %@", url]];
     NSDictionary *body = @{
-        @"model": self.modelField.text.length ? self.modelField.text : @"gpt-4o-mini",
+        @"model": self.modelField.text.length ? self.modelField.text : @"deepseek-chat",
         @"messages": @[@{@"role": @"user", @"content": @"hi"}],
         @"max_tokens": @5,
     };
@@ -866,7 +850,6 @@
 }
 
 - (void)showToast:(NSString *)msg {
-    // 先关闭之前的弹窗
     if (self.presentedViewController) {
         [self.presentedViewController dismissViewControllerAnimated:YES completion:^{
             [self presentNewToast:msg];
@@ -883,7 +866,6 @@
 }
 
 @end
-
 #pragma mark - 扫描结果控制器（带搜索、分组、Hook、区间复制、缓存）
 @interface DHScanResultVC : UITableViewController <UISearchBarDelegate>
 @property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
@@ -900,6 +882,7 @@
     NSArray<NSRegularExpression *> *_activeRegexes; // 闪电词库激活的正则模式
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
+    NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
 }
 
 - (void)viewDidLoad {
@@ -907,11 +890,11 @@
     self.title = @"扫描结果";
     _filterSystemClasses = YES;
     self.navigationItem.rightBarButtonItems = @[
-        [[UIBarButtonItem alloc] initWithTitle:@"批量复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
-        [[UIBarButtonItem alloc] initWithTitle:@"批量补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
+        [[UIBarButtonItem alloc] initWithTitle:@"复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
+        [[UIBarButtonItem alloc] initWithTitle:@"补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
-        [[UIBarButtonItem alloc] initWithTitle:@"🤖AI翻译" style:UIBarButtonItemStylePlain target:self action:@selector(translateWithAI)],
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"sparkles"] style:UIBarButtonItemStylePlain target:self action:@selector(translateWithAI)],
     ];
     self.tableView.rowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
@@ -973,7 +956,9 @@
     c.detailTextLabel.text = [NSString stringWithFormat:@"In Class: %@", r.className];
     c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     c.detailTextLabel.textColor = [UIColor grayColor];
-    c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    // 右侧多选框：选中打勾，没选中不显示
+    NSString *rowKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+    c.accessoryType = [_selectedSet containsObject:rowKey] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
 
     // 第三行：AI 翻译结果（先查本地缓存，再查运行时缓存）
     if (!r.dh_translation) {
@@ -1011,7 +996,15 @@
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
     DHScannerResult *r = self.filteredResults[ip.row];
-    [self showHookActionSheetForResult:r];
+    // 点行 = 切换选中状态（多选）
+    if (!_selectedSet) _selectedSet = [NSMutableSet new];
+    NSString *rowKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+    if ([_selectedSet containsObject:rowKey]) {
+        [_selectedSet removeObject:rowKey];
+    } else {
+        [_selectedSet addObject:rowKey];
+    }
+    [t reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)showHookActionSheetForResult:(DHScannerResult *)r {
@@ -1356,15 +1349,15 @@
                 if (fArgs) {
                     if (![r.methodName containsString:@":"]) continue;
                 }
-                // 搜索框关键词
+                // 搜索框关键词（类名/方法名/翻译名）
                 if (kw.length) {
-                    if (scope == 1) {
-                        if (![r.className.lowercaseString containsString:kw]) continue;
-                    } else if (scope == 2) {
-                        if (![r.methodName.lowercaseString containsString:kw]) continue;
-                    } else {
-                        if (![r.className.lowercaseString containsString:kw] && ![r.methodName.lowercaseString containsString:kw]) continue;
-                    }
+                    // 先读翻译缓存
+                    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+                    NSString *trans = [DHAIManager translationForKey:cacheKey] ?: @"";
+                    BOOL matchClass = [r.className.lowercaseString containsString:kw];
+                    BOOL matchMethod = [r.methodName.lowercaseString containsString:kw];
+                    BOOL matchTrans = [trans containsString:searchText];
+                    if (!matchClass && !matchMethod && !matchTrans) continue;
                 }
                 // 闪电词库过滤（叠加，放在最后因为正则慢）
                 if (activeKws.count) {
@@ -1439,7 +1432,17 @@
 }
 
 - (void)chooseFolderThenBatch:(DHHookReturnType)type {
-    // 先问数量
+    // 如果有选中的方法，直接对选中的批量补丁，不弹数量输入框
+    if (_selectedSet.count > 0) {
+        NSMutableArray *selectedResults = [NSMutableArray new];
+        for (DHScannerResult *r in self.filteredResults) {
+            NSString *rowKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+            if ([_selectedSet containsObject:rowKey]) [selectedResults addObject:r];
+        }
+        [self presentFolderSheetForBatch:type limit:0 results:selectedResults];
+        return;
+    }
+    // 没选中的，按原来逻辑：先问数量
     UIAlertController *countAlert = [UIAlertController alertControllerWithTitle:@"批量补丁数量" message:[NSString stringWithFormat:@"当前共%lu条\n输入要HOOK前多少条？(留空=全部)", (unsigned long)self.filteredResults.count] preferredStyle:UIAlertControllerStyleAlert];
     [countAlert addTextFieldWithConfigurationHandler:^(UITextField *f) { f.placeholder = @"如 20"; f.keyboardType = UIKeyboardTypeNumberPad; }];
     [countAlert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -1447,31 +1450,32 @@
         NSInteger limit = 0;
         NSString *txt = countAlert.textFields[0].text;
         if (txt.length) limit = txt.integerValue;
-        [self presentFolderSheetForBatch:type limit:limit];
+        [self presentFolderSheetForBatch:type limit:limit results:nil];
     }]];
     [self presentViewController:countAlert animated:YES completion:nil];
 }
 
-- (void)presentFolderSheetForBatch:(DHHookReturnType)type limit:(NSInteger)limit {
+- (void)presentFolderSheetForBatch:(DHHookReturnType)type limit:(NSInteger)limit results:(NSArray *)results {
     UIAlertController *folderSheet = [UIAlertController alertControllerWithTitle:@"请选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [folderSheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [self batchPatchWithType:type folder:nil limit:limit];
+        [self batchPatchWithType:type folder:nil limit:limit results:results];
     }]];
     NSArray *folders = [DHPatchListVC dhLoadFolders];
     for (NSString *f in folders) {
         [folderSheet addAction:[UIAlertAction actionWithTitle:f style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            [self batchPatchWithType:type folder:f limit:limit];
+            [self batchPatchWithType:type folder:f limit:limit results:results];
         }]];
     }
     [folderSheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:folderSheet animated:YES completion:nil];
 }
 
-- (void)batchPatchWithType:(DHHookReturnType)type folder:(NSString *)folderName limit:(NSInteger)limit {
+- (void)batchPatchWithType:(DHHookReturnType)type folder:(NSString *)folderName limit:(NSInteger)limit results:(NSArray *)results {
+    NSArray *source = results ?: self.filteredResults;
     NSInteger added = 0;
     NSMutableArray *toRemove = [NSMutableArray new];
     NSInteger processed = 0;
-    for (DHScannerResult *r in self.filteredResults) {
+    for (DHScannerResult *r in source) {
         if (limit > 0 && processed >= limit) break;
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         processed++;
@@ -1485,7 +1489,7 @@
     for (DHHookInfo *h in toRemove) [[DHHookManager sharedManager] removeHook:h];
     NSMutableArray *newHooks = [NSMutableArray new];
     NSInteger addedCount = 0;
-    for (DHScannerResult *r in self.filteredResults) {
+    for (DHScannerResult *r in source) {
         if (limit > 0 && addedCount >= limit) break;
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         // 跳过系统类，防止hook系统方法闪退
