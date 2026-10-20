@@ -878,6 +878,7 @@
     BOOL _filterSystemClasses; // 默认YES
     BOOL _filterBOOLOnly;
     BOOL _filterHasArgs;
+    BOOL _filterSetPrefix; // 过滤掉 set 开头的方法
     NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词（普通模式）
     NSArray<NSRegularExpression *> *_activeRegexes; // 闪电词库激活的正则模式
     BOOL _filterClassMethods;
@@ -889,6 +890,7 @@
     [super viewDidLoad];
     self.title = @"扫描结果";
     _filterSystemClasses = YES;
+    [self setupDefaultKeywordFolders];
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:@"复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
         [[UIBarButtonItem alloc] initWithTitle:@"补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
@@ -1121,36 +1123,59 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    // 取当前列表全部方法名，一次发给AI
-    // 先查本地缓存，已经翻译过的跳过，只发新的
-    NSMutableArray<NSString *> *methodList = [NSMutableArray new];
+    // 过滤出没翻译过的方法
+    NSMutableArray *pending = [NSMutableArray new];
     NSInteger skipped = 0;
     for (DHScannerResult *r in results) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
         NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
         NSString *cached = [DHAIManager translationForKey:cacheKey];
         if (cached.length > 0) {
-            // 已经有缓存了，直接用，不发请求
             r.dh_translation = cached;
             skipped++;
             continue;
         }
-        [methodList addObject:r.methodName];
+        [pending addObject:r];
     }
-    if (methodList.count == 0) {
+    if (pending.count == 0) {
         [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
         [self.tableView reloadData];
         return;
     }
-    if (skipped > 0) {
-        [self showToast:[NSString stringWithFormat:@"跳过已翻译%ld条，新翻译%ld条", (long)skipped, (long)methodList.count]];
+
+    // 分批大小：<5000 每批1000，>=5000 每批5000
+    NSInteger batchSize = (pending.count >= 5000) ? 5000 : 1000;
+    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
+
+    // 开始分批翻译
+    [self translateBatch:pending index:0 batchSize:batchSize total:pending.count skipped:skipped];
+}
+
+- (void)translateBatch:(NSArray *)pending index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped {
+    if (idx >= pending.count) {
+        [self.tableView reloadData];
+        [self showToast:[NSString stringWithFormat:@"全部翻译完成！共%ld条（跳过缓存%ld条）", (long)total, (long)skipped]];
+        return;
     }
 
-    [self showToast:@"🤖 AI 翻译中..."];
+    NSInteger end = MIN(idx + batchSize, pending.count);
+    NSArray *batch = [pending subarrayWithRange:NSMakeRange(idx, end - idx)];
 
-    // 打包成 JSON 数组发给 AI，要求 AI 返回 JSON 对象 {方法名: 中文意思}
+    NSMutableArray *methodList = [NSMutableArray new];
+    for (DHScannerResult *r in batch) {
+        [methodList addObject:r.methodName];
+    }
+
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    NSString *apiURL = cfg.apiURL;
+    if (![apiURL hasSuffix:@"/chat/completions"]) {
+        apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
+    }
+
+    [self showToast:[NSString stringWithFormat:@"正在翻译第%ld-%ld条（共%ld）", (long)(idx+1), (long)end, (long)total]];
+
     NSDictionary *body = @{
-        @"model": cfg.model ?: @"gpt-4o-mini",
+        @"model": cfg.model ?: @"deepseek-chat",
         @"messages": @[
             @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是一个 Objective-C 方法名数组，你需要把每个方法名翻译成简洁的中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译。不要输出任何其他内容。"},
             @{@"role": @"user", @"content": [methodList componentsJoinedByString:@"\n"]},
@@ -1159,36 +1184,32 @@
         @"response_format": @{@"type": @"json_object"},
     };
 
-    // 自动拼接 /chat/completions（如果用户只填了 Base URL）
-    NSString *apiURL = cfg.apiURL;
-    if (![apiURL hasSuffix:@"/chat/completions"]) {
-        apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
-    }
-
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiURL]];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    req.timeoutInterval = 60;
+    req.timeoutInterval = 600; // 10分钟超时
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (error) { [self showToast:[NSString stringWithFormat:@"请求失败: %@", error.localizedDescription]]; return; }
+            if (error) {
+                [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败: %@。已翻译的已保存，重新点翻译可继续", (long)(idx+1), (long)end, error.localizedDescription]];
+                return;
+            }
             NSError *jsonErr;
             NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
             if (jsonErr) { [self showToast:@"返回数据解析失败"]; return; }
             NSString *content = json[@"choices"][0][@"message"][@"content"];
             if (!content.length) { [self showToast:@"AI 返回为空"]; return; }
 
-            // 解析 AI 返回的 JSON 对象 {方法名: 中文意思}
             NSError *parseErr;
             NSDictionary *transMap = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&parseErr];
             if (parseErr || !transMap) { [self showToast:@"AI 返回格式错误"]; return; }
 
-            // 写回模型缓存 + 持久化到本地
+            // 这一批的结果立刻存缓存
             NSUInteger hit = 0;
-            for (DHScannerResult *r in results) {
+            for (DHScannerResult *r in batch) {
                 NSString *zh = transMap[r.methodName];
                 if (zh && [zh isKindOfClass:[NSString class]]) {
                     r.dh_translation = zh;
@@ -1198,7 +1219,9 @@
                 }
             }
             [self.tableView reloadData];
-            [self showToast:[NSString stringWithFormat:@"翻译完成，命中%lu条", (unsigned long)hit]];
+
+            // 递归翻译下一批
+            [self translateBatch:pending index:end batchSize:batchSize total:total skipped:skipped];
         });
     }];
     [task resume];
@@ -1250,6 +1273,7 @@
         _filterSystemClasses ? @"✓ 过滤系统类" : @"  过滤系统类",
         _filterBOOLOnly ? @"✓ 仅看BOOL方法" : @"  仅看BOOL方法",
         _filterHasArgs ? @"✓ 仅看带参方法" : @"  仅看带参方法",
+        _filterSetPrefix ? @"✓ 过滤set开头" : @"  过滤set开头",
     ];
     for (NSInteger i = 0; i < titles.count; i++) {
         if (i == 3) { [sheet addAction:[UIAlertAction actionWithTitle:@"———" style:UIAlertActionStyleDestructive handler:nil]]; continue; }
@@ -1258,12 +1282,79 @@
             else if (i == 4) self->_filterSystemClasses = !self->_filterSystemClasses;
             else if (i == 5) self->_filterBOOLOnly = !self->_filterBOOLOnly;
             else if (i == 6) self->_filterHasArgs = !self->_filterHasArgs;
+            else if (i == 7) self->_filterSetPrefix = !self->_filterSetPrefix;
             [self filterBtnTapped:btn]; // 刷新菜单
             [self applyFilter];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)setupDefaultKeywordFolders {
+    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"];
+    if (existing.count > 0) return; // 用户已经有词库了，不覆盖
+
+    NSMutableArray *defaultFolders = [NSMutableArray new];
+
+    // 1. 定时器/轮询（正则）
+    [defaultFolders addObject:@{
+        @"name": @"🔴定时器/轮询(正则)",
+        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|schedule|delay|clear|fire|invalidate|tick|trigger|timeout|poll|loop|wait|sleep|reset|restart|pause|resume|count).*(timer|countdown|interval|delay|timeout|tick|polling|heartbeat|schedule|task|alarm|dispatch|handler|coroutine|loop|wait|sleep|duration|elapsed).*",
+        @"isRegex": @YES,
+    }];
+
+    // 2. 音视频（正则）
+    [defaultFolders addObject:@{
+        @"name": @"🔴音视频/播放(正则)",
+        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|play|pause|resume|seek|record|capture|save|render|compress|trim|crop|cut|split|merge|export|import|download|upload|stream|mute|unmute|scale|resize|rotate|dial).*(video|audio|voice|sound|music|media|player|recorder|stream|render|frame|codec|compress|trim|crop|volume|mute|speaker|microphone|mic|camera|subtitle|caption).*",
+        @"isRegex": @YES,
+    }];
+
+    // 3. 通话计费（正则）
+    [defaultFolders addObject:@{
+        @"name": @"🔴通话/计费(正则)",
+        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|end|hangup|answer|accept|reject|decline|hold|unhold|deduct|charge|consume|calculate|count|dial).*(call|dial|phone|voice|speaker|microphone|balance|coin|diamond|credit|fee|price|rate|cost|billing|charge|duration|time|minute|second|hold|mute|hangup).*",
+        @"isRegex": @YES,
+    }];
+
+    // 4. 送礼打赏（正则）
+    [defaultFolders addObject:@{
+        @"name": @"🔴送礼/打赏(正则)",
+        @"content": @"(?i).*(is|has|check|should|can|need|verify|validate|allow|enable|disable|require|grant|revoke|get|set|show|hide|remove|block|unlock|access|use|fetch|load|request|create|update|delete|query|report|detect|filter|monitor|track|start|stop|try|pay|buy|purchase|subscribe|renew|upgrade|refund|cancel|select|send|give|receive|play|calculate|deduct|charge|consume|animate).*(gift|present|tip|reward|combo|animation|effect|panel|sender|receiver|balance|coin|diamond|price|cost|count|list).*",
+        @"isRegex": @YES,
+    }];
+
+    // 5. 定时器（普通）
+    [defaultFolders addObject:@{
+        @"name": @"🟢定时器/轮询(普通)",
+        @"content": @"Timer\nNSTimer\nCADisplayLink\nDispatchSourceTimer\nCountDownTimer\nisTimerRunning\nisTimerActive\nisTimerValid\nisCountdownRunning\nisTimeout\nhasTimeout\ncheckTimeout\nisTimeUp\ngetTimer\ngetTimerState\ngetInterval\ngetDelay\ngetPeriod\ngetTick\ngetElapsedTime\ngetRemainingTime\nstartTimer\nstopTimer\npauseTimer\nresumeTimer\ncancelTimer\nresetTimer\nrestartTimer\ninvalidateTimer\nscheduleTimer\nscheduleDelay\nscheduleTask\nstartCountdown\nstopCountdown\ncancelCountdown\nstartPolling\nstopPolling\nstartHeartbeat\nstopHeartbeat\npostDelayed\nonTick\nonFinish\nonTimerTick\ntick\nfire\ninvalidate\nschedule\nclearTimeout\nsetTimeout\nsetInterval\nclearInterval",
+        @"isRegex": @NO,
+    }];
+
+    // 6. 音视频（普通）
+    [defaultFolders addObject:@{
+        @"name": @"🟢音视频/播放(普通)",
+        @"content": @"VideoPlayer\nVideoView\nVideoEditor\nVideoCompressor\nAudioPlayer\nAudioRecorder\nAudioManager\nMediaPlayer\nMediaRecorder\nisVideo\nhasVideo\nisVideoValid\nisVideoPlaying\nisVideoPaused\nisVideoStopped\nisVideoEnded\nisVideoLoading\nisVideoBuffering\nisVideoMuted\nisAudio\nhasAudio\nisAudioPlaying\nisAudioPaused\nisAudioMuted\nisRecording\nisMicrophoneOn\nisSpeakerOn\ngetVideo\ngetVideoInfo\ngetVideoDuration\ngetAudio\ngetAudioInfo\ngetAudioDuration\nloadVideo\nplayVideo\npauseVideo\nstopVideo\nresumeVideo\nseekVideo\nrestartVideo\ncompressVideo\ntrimVideo\ncropVideo\nsplitVideo\nmergeVideo\nrecordVideo\ncaptureVideo\nplayAudio\npauseAudio\nstopAudio\nrecordAudio\nstartRecord\nstopRecord\nsetVideoQuality\nsetVideoSpeed\nsetVideoVolume\nsetVideoMute\nsetAudioVolume\nsetAudioSpeed\nmuteMicrophone\nunmuteMicrophone",
+        @"isRegex": @NO,
+    }];
+
+    // 7. 通话计费（普通）
+    [defaultFolders addObject:@{
+        @"name": @"🟢通话/计费(普通)",
+        @"content": @"CallManager\nCallKit\nCallBillingManager\nCallChargeManager\nVoiceEngine\nisCall\nhasCall\nisCalling\nisCallActive\nisCallConnected\nisCallEnded\nisCallIncoming\nisCallOutgoing\nisCallMuted\nisCallHeld\nisCallBilling\nhasCallBilling\nisBillingActive\nisCharging\nisCallCharging\nisBalanceEnoughForCall\nisCallBalanceSufficient\nisCallTimeExceeded\nisCallTimeout\ngetCallRate\ngetCallPrice\ngetCallFee\ngetCallCost\ngetCallMinutePrice\ngetCallBalance\ngetCallDuration\ngetCallBillingDuration\ngetCallingTime\ngetRemainingCallTime\ngetCallStatus\ngetCallHistory\nstartCall\nendCall\nhangUp\nanswerCall\nacceptCall\nrejectCall\ndeclineCall\nmuteCall\nunmuteCall\nholdCall\nunholdCall\nstartCallTimer\nstartCallBilling\nstartCallCharging\nstopCallTimer\nstopCallBilling\nstopCallCharging\ncalculateCallCost\ncalculateCallFee\ndeductCallFee\ndeductCallCoin\ndeductCallDiamond\nchargeCallFee\nconsumeCallCoin\npayForCall",
+        @"isRegex": @NO,
+    }];
+
+    // 8. 送礼打赏（普通）
+    [defaultFolders addObject:@{
+        @"name": @"🟢送礼/打赏(普通)",
+        @"content": @"GiftManager\nGiftController\nGiftPanel\nGiftAnimator\nGiftSender\nGiftReceiver\nGiftComboUtils\nVirtualGift\nLiveGift\nisGift\nhasGift\nisGiftAvailable\nisGiftSelected\nisGiftSent\nisGiftSending\nisGiftCombo\nisComboActive\nisComboTimeout\nisEnoughBalanceForGift\nisGiftAnimationPlaying\ngetGift\ngetGiftList\ngetGiftInfo\ngetGiftId\ngetGiftName\ngetGiftIcon\ngetGiftPrice\ngetGiftCost\ngetGiftCount\ngetGiftComboCount\ngetGiftBalance\ngetGiftAnimation\ngetGiftEffect\nsetGift\nsetGiftCount\nsetGiftPrice\nselectGift\nsendGift\ngiveGift\nsendVirtualGift\nsendComboGift\nreceiveGift\nbuyGift\npurchaseGift\nloadGiftList\nloadGiftPanel\nshowGiftPanel\nhideGiftPanel\nshowGiftAnimation\nplayGiftAnimation\nshowGiftEffect\nplayGiftEffect\nhideGiftAnimation\nclearGiftAnimation\nstartCombo\nstopCombo\nresetCombo\ncalculateGiftTotal\ncalculateGiftCost\ndeductGiftCoin\ndeductGiftDiamond\nchargeGiftFee\nconsumeGiftCoin\npayForGift\ntrackGiftSend",
+        @"isRegex": @NO,
+    }];
+
+    [[NSUserDefaults standardUserDefaults] setObject:defaultFolders forKey:@"DHKeywordFolders"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)openKeywordMenu {
@@ -1290,6 +1381,11 @@
     }
     if (_filterHasArgs) {
         if (![r.methodName containsString:@":"]) return NO;
+    }
+    if (_filterSetPrefix) {
+        // 过滤掉 set 开头的方法
+        NSString *lower = r.methodName.lowercaseString;
+        if ([lower hasPrefix:@"set"]) return NO;
     }
     return YES;
 }
@@ -1427,10 +1523,15 @@
 - (void)startMonitorFromScan {
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无筛选结果"]; return; }
-    [[DHMonitorManager shared] stop];
-    [[DHMonitorManager shared] startWithResults:results];
-    [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
-    [self dismissViewControllerAnimated:YES completion:nil];
+    UIAlertController *confirm = [UIAlertController alertControllerWithTitle:@"开启方法监控" message:[NSString stringWithFormat:@"确定要监控当前列表的%lu个方法吗？\n监控后会实时打印方法调用日志。", (unsigned long)results.count] preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"确定开启" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [[DHMonitorManager shared] stop];
+        [[DHMonitorManager shared] startWithResults:results];
+        [self showToast:[NSString stringWithFormat:@"已监控%lu个方法", (unsigned long)results.count]];
+        [self dismissViewControllerAnimated:YES completion:nil];
+    }]];
+    [self presentViewController:confirm animated:YES completion:nil];
 }
 
 - (void)batchPatchMenu {
