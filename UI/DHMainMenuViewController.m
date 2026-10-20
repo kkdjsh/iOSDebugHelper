@@ -1357,18 +1357,7 @@
 }
 
 - (void)setupDefaultKeywordFolders {
-    NSMutableArray *existing = [NSMutableArray arrayWithArray:[[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[]];
-    
-    // 先删掉旧的带图标的词库
-    NSMutableArray *cleaned = [NSMutableArray new];
-    for (NSDictionary *f in existing) {
-        NSString *name = f[@"name"];
-        if (![name hasPrefix:@"🔴"] && ![name hasPrefix:@"🟢"]) {
-            [cleaned addObject:f];
-        }
-    }
-    existing = cleaned;
-
+    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:@"DHKeywordFolders"] ?: @[];
     NSMutableArray *existingNames = [NSMutableArray new];
     for (NSDictionary *f in existing) [existingNames addObject:f[@"name"]];
 
@@ -1434,8 +1423,8 @@
         }];
     }
 
-    if (toAdd.count > 0 || cleaned.count != existing.count) {
-        NSMutableArray *newArr = [NSMutableArray arrayWithArray:cleaned];
+    if (toAdd.count > 0) {
+        NSMutableArray *newArr = [NSMutableArray arrayWithArray:existing];
         [newArr addObjectsFromArray:toAdd];
         [[NSUserDefaults standardUserDefaults] setObject:newArr forKey:@"DHKeywordFolders"];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -1539,22 +1528,8 @@
 
             NSMutableArray *result = [NSMutableArray new];
             for (DHScannerResult *r in all) {
-                // 先跑漏斗筛选（快速过滤，减少后续正则计算量）
-                // 过滤系统类
-                if (fSys) {
-                    NSString *cn = r.className;
-                    if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
-                        [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
-                }
-                // 仅看BOOL方法
-                if (fBool) {
-                    NSString *mn = r.methodName.lowercaseString;
-                    if (![mn hasPrefix:@"is"] && ![mn hasPrefix:@"has"] && ![mn hasPrefix:@"should"]) continue;
-                }
-                // 仅看带参方法
-                if (fArgs) {
-                    if (![r.methodName containsString:@":"]) continue;
-                }
+                // 先跑快速漏斗过滤（最快的先跑，快速淘汰大部分）
+                if (![self passFunnelFilter:r]) continue;
                 // 搜索框关键词（类名/方法名/翻译名）
                 if (kw.length) {
                     // 直接从缓存字典查，不逐个读文件
@@ -1565,24 +1540,25 @@
                     BOOL matchTrans = [trans containsString:searchText];
                     if (!matchClass && !matchMethod && !matchTrans) continue;
                 }
-                // 闪电词库过滤（叠加，放在最后因为正则慢）
-                if (activeKws.count) {
+                [result addObject:r];
+            }
+            // 闪电词库过滤（放在最后，因为正则慢，只对已经过了快速过滤的结果跑）
+            if (activeKws.count || activeRegexes.count) {
+                NSMutableArray *afterKw = [NSMutableArray new];
+                for (DHScannerResult *r in result) {
                     BOOL hit = NO;
                     for (NSString *akw in activeKws) {
                         if ([r.className rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound ||
                             [r.methodName rangeOfString:akw options:NSCaseInsensitiveSearch].location != NSNotFound) { hit = YES; break; }
                     }
-                    if (!hit) continue;
-                }
-                if (activeRegexes.count) {
-                    BOOL hit = NO;
+                    if (hit) { [afterKw addObject:r]; continue; }
                     for (NSRegularExpression *re in activeRegexes) {
                         if ([re rangeOfFirstMatchInString:r.methodName options:0 range:NSMakeRange(0, r.methodName.length)].location != NSNotFound ||
                             [re rangeOfFirstMatchInString:r.className options:0 range:NSMakeRange(0, r.className.length)].location != NSNotFound) { hit = YES; break; }
                     }
-                    if (!hit) continue;
+                    if (hit) [afterKw addObject:r];
                 }
-                [result addObject:r];
+                result = afterKw;
             }
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.filteredResults = result;
