@@ -824,17 +824,21 @@
 - (void)exportTranslationCache {
     NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
     NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
-    NSURL *fileURL = [NSURL fileURLWithPath:cachePath];
     if (![[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
         [self showToast:@"还没有翻译记录可导出"];
         return;
     }
+    // 复制到临时目录，用友好文件名
+    NSString *exportPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"翻译缓存_备份.plist"];
+    [[NSFileManager defaultManager] removeItemAtPath:exportPath error:nil];
+    [[NSFileManager defaultManager] copyItemAtPath:cachePath toPath:exportPath error:nil];
+    NSURL *fileURL = [NSURL fileURLWithPath:exportPath];
     UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
     [self presentViewController:activityVC animated:YES completion:nil];
 }
 
 - (void)importTranslationCache {
-    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.plist"] inMode:UIDocumentPickerModeImport];
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.data"] inMode:UIDocumentPickerModeImport];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
