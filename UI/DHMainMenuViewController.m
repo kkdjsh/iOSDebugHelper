@@ -1437,13 +1437,17 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"1/3 正在后台收集需要翻译的方法名..."];
+    [self showToast:@"1/3 正在分批收集需要翻译的方法名..."];
 
-    // 方案三：后台线程收集唯一方法名，不修改任何对象属性
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSMutableArray *pendingUnique = [NSMutableArray new];
-        NSMutableSet *seenMethodNames = [NSMutableSet new];
-        for (DHScannerResult *r in results) {
+    // 方案二：分批收集，每次只遍历1000个，分多次做，避免一次性遍历3万多个崩溃
+    NSMutableArray *pendingUnique = [NSMutableArray new];
+    NSMutableSet *seenMethodNames = [NSMutableSet new];
+    NSInteger collectBatchSize = 1000;
+
+    void (^collectNext)(NSInteger) = ^(NSInteger startIdx) {
+        NSInteger end = MIN(startIdx + collectBatchSize, results.count);
+        for (NSInteger i = startIdx; i < end; i++) {
+            DHScannerResult *r = results[i];
             if ([r.methodName isEqualToString:@"(class)"]) continue;
             // 去重：同一个方法名只加一次
             if (![seenMethodNames containsObject:r.methodName]) {
@@ -1456,8 +1460,13 @@
             }
         }
 
-        // 回到主线程开始翻译
-        dispatch_async(dispatch_get_main_queue(), ^{
+        if (end < results.count) {
+            // 还有下一批，延迟10毫秒继续收集，避免占满主线程
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.01 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                collectNext(end);
+            });
+        } else {
+            // 收集完成，开始翻译
             if (pendingUnique.count == 0) {
                 [self showToast:@"全部方法都已经翻译过了"];
                 [self.tableView reloadData];
@@ -1470,8 +1479,10 @@
 
             // 直接开始分批翻译
             [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:0 retryCount:0];
-        });
-    });
+        }
+    };
+
+    collectNext(0);
 }
 
 - (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped retryCount:(NSInteger)retryCount {
