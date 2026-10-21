@@ -12,6 +12,7 @@
 @property (nonatomic, copy) NSString *returnValue;
 @property (nonatomic, copy) NSString *callStack;
 @property (nonatomic, copy) NSDate *time;
+@property (nonatomic, assign) NSInteger count;
 @end
 
 @interface DHMonitorManager : NSObject

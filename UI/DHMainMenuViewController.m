@@ -2082,8 +2082,8 @@
     void(^refresh)(void) = ^{
         NSMutableString *s = [NSMutableString new];
         for (DHMonitorEvent *e in mgr.events) {
-            [s appendFormat:@"[%@] %@ → %@\n", e.time, e.signature, e.returnValue];
-            if (e.callStack.length) [s appendFormat:@"  栈: %@\n\n", e.callStack];
+            NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
+            [s appendFormat:@"%@%@ → %@\n", e.signature, countStr, e.returnValue];
         }
         tv.text = s.length ? s : @"未启动监控或无事件";
     };

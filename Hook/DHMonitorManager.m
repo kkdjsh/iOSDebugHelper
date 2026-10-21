@@ -110,7 +110,7 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 
     if (!shouldLog) return;
 
-    // 后台记录事件
+    // 后台记录事件（去重+计数）
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSArray *stack = [NSThread callStackSymbols];
         NSMutableArray *filtered = [NSMutableArray new];
@@ -124,14 +124,30 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
                 [filtered addObject:line];
             }
         }
-        DHMonitorEvent *e = [DHMonitorEvent new];
-        e.signature = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
-        e.returnValue = retStr;
-        e.callStack = [filtered componentsJoinedByString:@"\n"];
-        e.time = [NSDate date];
+        NSString *sig = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
         @synchronized(g_events) {
-            [g_events addObject:e];
-            if (g_events.count > 500) [g_events removeObjectsInRange:NSMakeRange(0, g_events.count - 500)];
+            // 去重：找有没有已经记录过这个方法
+            DHMonitorEvent *existing = nil;
+            for (DHMonitorEvent *e in g_events) {
+                if ([e.signature isEqualToString:sig]) { existing = e; break; }
+            }
+            if (existing) {
+                // 已存在，计数+1，更新返回值和时间
+                existing.count += 1;
+                existing.returnValue = retStr;
+                existing.time = [NSDate date];
+                if (filtered.count > 0) existing.callStack = [filtered componentsJoinedByString:@"\n"];
+            } else {
+                // 新方法，新增
+                DHMonitorEvent *e = [DHMonitorEvent new];
+                e.signature = sig;
+                e.returnValue = retStr;
+                e.callStack = [filtered componentsJoinedByString:@"\n"];
+                e.time = [NSDate date];
+                e.count = 1;
+                [g_events addObject:e];
+                if (g_events.count > 200) [g_events removeObjectsInRange:NSMakeRange(0, g_events.count - 200)];
+            }
         }
     });
 }
