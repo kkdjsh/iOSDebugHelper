@@ -1077,7 +1077,6 @@
     BOOL _filterInstanceMethods;
     NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
     UILabel *_progressLabel; // 自动消失的轻量进度条，不阻塞
-    NSMutableSet<NSString *> *_dedupSet; // 跨轮次去重集合，记录已提交过的方法名
 }
 
 - (void)viewDidLoad {
@@ -1439,18 +1438,15 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    // 每轮开始前清空去重集合
-    _dedupSet = [NSMutableSet new];
+    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮2000个，共约%ld轮", (long)((results.count + 1999) / 2000)]];
 
-    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
-
-    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
+    // 泄压轮次：从第0个开始，每轮只取2000个切片，处理完泄压再进下一轮
     [self processSliceFrom:0 results:results retryCount:0];
 }
 
-// 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
+// 处理从startIdx开始的一个切片（2000个），查缓存过滤后提交，完成后推进下一轮
 - (void)processSliceFrom:(NSInteger)startIdx results:(NSArray *)results retryCount:(NSInteger)retryCount {
-    NSInteger sliceSize = 1000;
+    NSInteger sliceSize = 2000;
     NSInteger end = MIN(startIdx + sliceSize, results.count);
 
     if (startIdx >= results.count) {
@@ -1461,9 +1457,9 @@
 
     [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
-    // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积
+    // 放后台线程对当前2000个切片查缓存过滤，不卡UI；只收集这一片，不累积；不去重
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSMutableArray *candidates = [NSMutableArray new];
+        NSMutableArray *slice = [NSMutableArray new];
         for (NSInteger i = startIdx; i < end; i++) {
             DHScannerResult *r = results[i];
             if ([r.methodName isEqualToString:@"(class)"]) continue;
@@ -1472,19 +1468,12 @@
                 r.dh_translation = cached;
                 continue;
             }
-            [candidates addObject:r];
+            [slice addObject:r];
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            // 主线程去重：同一方法名只提交一次，加入跨轮次去重集合
-            NSMutableArray *slice = [NSMutableArray new];
-            for (DHScannerResult *r in candidates) {
-                if ([_dedupSet containsObject:r.methodName]) continue;
-                [_dedupSet addObject:r.methodName];
-                [slice addObject:r];
-            }
             if (slice.count == 0) {
-                // 这一片都是缓存或重复，直接推进下一轮（泄压，不保留）
+                // 这一片都是缓存，直接推进下一轮（泄压，不保留）
                 [self processSliceFrom:end results:results retryCount:0];
                 return;
             }
