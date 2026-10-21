@@ -371,19 +371,30 @@
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"全选" style:UIBarButtonItemStylePlain target:self action:@selector(selectAll)];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(exitBatchMode)];
     
-    // 底部工具栏
-    UIToolbar *toolbar = [[UIToolbar alloc] init];
-    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
-    UIBarButtonItem *deleteBtn = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:UIBarButtonItemStylePlain target:self action:@selector(batchDelete)];
-    UIBarButtonItem *moveBtn = [[UIBarButtonItem alloc] initWithTitle:@"移动到文件夹" style:UIBarButtonItemStylePlain target:self action:@selector(batchMove)];
-    UIBarButtonItem *flex = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
-    toolbar.items = @[deleteBtn, flex, moveBtn];
+    // 加长按手势，长按cell弹出批量操作菜单
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+    longPress.minimumPressDuration = 0.5;
+    [self.tableView addGestureRecognizer:longPress];
+}
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    CGPoint point = [gesture locationInView:self.tableView];
+    NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
+    if (!ip) return;
+    if (!self.currentFolder && ip.section == 0) return; // 跳过文件夹行
     
-    [self.view addSubview:toolbar];
-    CGFloat toolbarH = 44 + self.view.safeAreaInsets.bottom;
-    toolbar.frame = CGRectMake(0, self.view.bounds.size.height - toolbarH, self.view.bounds.size.width, toolbarH);
+    NSArray *selected = [self selectedHooks];
+    if (selected.count == 0) {
+        [self showToast:@"请先选择要操作的补丁"];
+        return;
+    }
     
-    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, toolbarH, 0);
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"已选%ld个补丁", (long)selected.count] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) { [self batchDelete]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量移动到文件夹" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self batchMove]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)exitBatchMode {
