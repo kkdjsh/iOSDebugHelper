@@ -1424,8 +1424,8 @@
         return;
     }
 
-    // 分批大小：<5000 每批1000，>=5000 每批5000
-    NSInteger batchSize = (pending.count >= 5000) ? 5000 : 1000;
+    // 分批大小：每批200个，防止请求体太大卡内存
+    NSInteger batchSize = 200;
     [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
 
     // 开始分批翻译
@@ -1462,6 +1462,7 @@
             @{@"role": @"user", @"content": [methodList componentsJoinedByString:@"\n"]},
         ],
         @"temperature": @0.3,
+        @"max_tokens": @4096,
         @"response_format": @{@"type": @"json_object"},
     };
 
