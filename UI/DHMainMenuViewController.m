@@ -1437,49 +1437,54 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"正在预处理（查缓存，无去重）..."];
+    [self showToast:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
-    // 恢复稳定版：遍历+查缓存收集pending，不做去重
-    NSMutableArray *pending = [NSMutableArray new];
-    NSInteger skipped = 0;
-    for (DHScannerResult *r in results) {
-        if ([r.methodName isEqualToString:@"(class)"]) continue;
-        NSString *cacheKey = r.methodName;
-        NSString *cached = [DHAIManager translationForKey:cacheKey];
-        if (cached.length > 0) {
-            r.dh_translation = cached;
-            skipped++;
-            continue;
-        }
-        [pending addObject:r];
-    }
-    if (pending.count == 0) {
-        [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
-        [self.tableView reloadData];
-        return;
-    }
-
-    // 分批大小：每批1000个
-    NSInteger batchSize = 1000;
-    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
-
-    // 开始分批翻译
-    [self translateBatch:pending allResults:results index:0 batchSize:batchSize total:pending.count skipped:skipped retryCount:0];
+    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
+    [self processSliceFrom:0 results:results retryCount:0];
 }
 
-- (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped retryCount:(NSInteger)retryCount {
-    if (idx >= pending.count) {
+// 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
+- (void)processSliceFrom:(NSInteger)startIdx results:(NSArray *)results retryCount:(NSInteger)retryCount {
+    NSInteger sliceSize = 1000;
+    NSInteger end = MIN(startIdx + sliceSize, results.count);
+
+    if (startIdx >= results.count) {
         [self.tableView reloadData];
-        [self showToast:[NSString stringWithFormat:@"4/4 全部翻译完成！共%ld个唯一方法", (long)total]];
+        [self showToast:@"全部翻译完成！"];
         return;
     }
 
-    NSInteger end = MIN(idx + batchSize, pending.count);
-    [self showToast:[NSString stringWithFormat:@"3/4 正在翻译第%ld-%ld个（共%ld个）", (long)(idx+1), (long)end, (long)total]];
-    NSArray *batch = [pending subarrayWithRange:NSMakeRange(idx, end - idx)];
+    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
+    // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSMutableArray *slice = [NSMutableArray new];
+        for (NSInteger i = startIdx; i < end; i++) {
+            DHScannerResult *r = results[i];
+            if ([r.methodName isEqualToString:@"(class)"]) continue;
+            NSString *cached = [DHAIManager translationForKey:r.methodName];
+            if (cached.length > 0) {
+                r.dh_translation = cached;
+                continue;
+            }
+            [slice addObject:r];
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (slice.count == 0) {
+                // 这一片全是缓存，直接推进下一轮（泄压，不保留）
+                [self processSliceFrom:end results:results retryCount:0];
+                return;
+            }
+            [self sendSlice:slice rangeStart:startIdx rangeEnd:end results:results retryCount:retryCount];
+        });
+    });
+}
+
+// 提交当前切片给AI，返回后存缓存、刷新，再泄压推进下一轮
+- (void)sendSlice:(NSArray *)slice rangeStart:(NSInteger)rangeStart rangeEnd:(NSInteger)rangeEnd results:(NSArray *)results retryCount:(NSInteger)retryCount {
     NSMutableArray *methodList = [NSMutableArray new];
-    for (DHScannerResult *r in batch) {
+    for (DHScannerResult *r in slice) {
         [methodList addObject:r.methodName];
     }
 
@@ -1488,8 +1493,6 @@
     if (![apiURL hasSuffix:@"/chat/completions"]) {
         apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
     }
-
-    [self showToast:[NSString stringWithFormat:@"正在翻译第%ld-%ld条（共%ld）", (long)(idx+1), (long)end, (long)total]];
 
     NSDictionary *body = @{
         @"model": cfg.model ?: @"deepseek-chat",
@@ -1506,32 +1509,29 @@
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    req.timeoutInterval = 600; // 10分钟超时
+    req.timeoutInterval = 600;
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            // 失败重试：最多重试2次
             NSInteger maxRetry = 2;
-            
+            // 失败：重试本切片，超过2次则跳过推进下一轮（泄压，不卡住）
+            void (^nextRound)(void) = ^{
+                [self processSliceFrom:rangeEnd results:results retryCount:0];
+            };
             void (^retryBlock)(void) = ^{
                 if (retryCount < maxRetry) {
-                    NSInteger newRetryCount = retryCount + 1;
-                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条失败，第%ld次重试...", (long)(idx+1), (long)end, newRetryCount]];
-                    // 延迟1秒后重试
+                    NSInteger newRetry = retryCount + 1;
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart+1), (long)rangeEnd, newRetry]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                        [self translateBatch:pending allResults:allResults index:idx batchSize:batchSize total:total skipped:skipped retryCount:newRetryCount];
+                        [self sendSlice:slice rangeStart:rangeStart rangeEnd:rangeEnd results:results retryCount:newRetry];
                     });
                 } else {
-                    // 重试2次都失败，跳过这一批，继续下一批
-                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败，已跳过", (long)(idx+1), (long)end]];
-                    [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped retryCount:0];
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart+1), (long)rangeEnd]];
+                    nextRound();
                 }
             };
-            
-            if (error) {
-                retryBlock();
-                return;
-            }
+
+            if (error) { retryBlock(); return; }
             NSError *jsonErr;
             NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
             if (jsonErr) { retryBlock(); return; }
@@ -1542,30 +1542,18 @@
             NSDictionary *transMap = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&parseErr];
             if (parseErr || !transMap) { retryBlock(); return; }
 
-            // 这一批的结果立刻存缓存，同时更新所有相同方法名的对象
-            NSUInteger hit = 0;
-            for (DHScannerResult *r in batch) {
+            // 只更新当前切片对象并存缓存，不遍历全部，泄压
+            for (DHScannerResult *r in slice) {
                 NSString *zh = transMap[r.methodName];
                 if (zh && [zh isKindOfClass:[NSString class]]) {
                     r.dh_translation = zh;
-                    NSString *cacheKey = r.methodName;
-                    [DHAIManager setTranslation:zh forKey:cacheKey];
-                    hit++;
-                }
-            }
-            // 遍历所有结果，把相同方法名的对象都更新
-            for (DHScannerResult *r in allResults) {
-                if (!r.dh_translation) {
-                    NSString *zh = transMap[r.methodName];
-                    if (zh && [zh isKindOfClass:[NSString class]]) {
-                        r.dh_translation = zh;
-                    }
+                    [DHAIManager setTranslation:zh forKey:r.methodName];
                 }
             }
             [self.tableView reloadData];
 
-            // 递归翻译下一批
-            [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped retryCount:0];
+            // 泄压：slice局部释放，推进下一轮
+            [self processSliceFrom:rangeEnd results:results retryCount:0];
         });
     }];
     [task resume];
