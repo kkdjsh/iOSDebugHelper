@@ -47,30 +47,40 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 - (void)showFloatingButton {
     // 透传Window，windowLevel最高但不拦截触摸
     DHPassthroughWindow *window = [[DHPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    window.windowLevel = UIWindowLevelAlert + 100;
+    // 提高windowLevel，防止被其他App的window盖住
+    window.windowLevel = UIWindowLevelStatusBar + 1000;
     window.backgroundColor = [UIColor clearColor];
     window.hidden = NO;
+    // 兼容iOS 13+ Scene
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *scene = (UIWindowScene *)[UIApplication sharedApplication].connectedScenes.allObjects.firstObject;
+        if ([scene isKindOfClass:[UIWindowScene class]]) {
+            window.windowScene = scene;
+        }
+    }
     window.rootViewController = [UIViewController new];
     window.rootViewController.view.backgroundColor = [UIColor clearColor];
     window.userInteractionEnabled = YES;
-
+    window.clipsToBounds = NO;
+    
     self.floatingWindow = window;
-
+    
     self.floatingButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.floatingButton.frame = CGRectMake(self.buttonPosition.x, self.buttonPosition.y, self.buttonSize, self.buttonSize);
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:self.buttonAlpha];
     self.floatingButton.layer.cornerRadius = self.buttonSize / 2;
     self.floatingButton.alpha = self.buttonAlpha;
+    self.floatingButton.layer.zPosition = 9999;
     [self.floatingButton setTitle:@"🔧" forState:UIControlStateNormal];
     self.floatingButton.titleLabel.font = [UIFont systemFontOfSize:self.buttonSize * 0.4];
-
+    
     // 拖拽手势
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.floatingButton addGestureRecognizer:pan];
-
+    
     // 点击
     [self.floatingButton addTarget:self action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
-
+    
     [window.rootViewController.view addSubview:self.floatingButton];
     DHLogInfo(@"悬浮球已显示(透传Window)");
 }
