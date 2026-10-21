@@ -1112,7 +1112,26 @@
         return b;
     };
 
-    // 把按钮移到header里，不用rightBarButtonItems了，防止某些App导航栏按钮点不动
+    self.tableView.rowHeight = 60;
+    CGFloat w = [UIScreen mainScreen].bounds.size.width;
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
+    header.backgroundColor = [UIColor whiteColor];
+
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(4, 6, w - 90, 40)];
+    self.searchBar.placeholder = @"搜索类名/方法名";
+    self.searchBar.delegate = self;
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    [header addSubview:self.searchBar];
+
+    UIButton *filterBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    filterBtn.frame = CGRectMake(w - 80, 10, 76, 32);
+    [filterBtn setImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease.circle"] forState:UIControlStateNormal];
+    filterBtn.titleLabel.font = [UIFont systemFontOfSize:13];
+    filterBtn.tag = 200;
+    [filterBtn addTarget:self action:@selector(filterBtnTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:filterBtn];
+    
+    // 把按钮放在header里，和搜索框同一行，防止某些App导航栏按钮点不动
     UIButton *eyeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     eyeBtn.frame = CGRectMake(80, 10, 32, 32);
     [eyeBtn setImage:[UIImage systemImageNamed:@"eye.fill"] forState:UIControlStateNormal];
@@ -1167,25 +1186,6 @@
     copyBtn.layer.masksToBounds = YES;
     [copyBtn addTarget:self action:@selector(batchCopy) forControlEvents:UIControlEventTouchUpInside];
     [header addSubview:copyBtn];
-
-    self.tableView.rowHeight = 60;
-    CGFloat w = [UIScreen mainScreen].bounds.size.width;
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
-    header.backgroundColor = [UIColor whiteColor];
-
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(4, 6, w - 90, 40)];
-    self.searchBar.placeholder = @"搜索类名/方法名";
-    self.searchBar.delegate = self;
-    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
-    [header addSubview:self.searchBar];
-
-    UIButton *filterBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    filterBtn.frame = CGRectMake(w - 80, 10, 76, 32);
-    [filterBtn setImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease.circle"] forState:UIControlStateNormal];
-    filterBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    filterBtn.tag = 200;
-    [filterBtn addTarget:self action:@selector(filterBtnTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [header addSubview:filterBtn];
 
     // 键盘上加完成按钮
     UIToolbar *tool = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 0, 44)];
