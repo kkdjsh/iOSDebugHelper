@@ -1522,12 +1522,12 @@
                     [self showToast:[NSString stringWithFormat:@"第%ld-%ld条失败，第%ld次重试...", (long)(idx+1), (long)end, retryCount]];
                     // 延迟1秒后重试
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                        [self translateBatch:pending index:idx batchSize:batchSize total:total skipped:skipped];
+                        [self translateBatch:pending allResults:allResults index:idx batchSize:batchSize total:total skipped:skipped];
                     });
                 } else {
                     // 重试2次都失败，跳过这一批，继续下一批
                     [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败，已跳过", (long)(idx+1), (long)end]];
-                    [self translateBatch:pending index:end batchSize:batchSize total:total skipped:skipped];
+                    [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped];
                 }
             };
             
