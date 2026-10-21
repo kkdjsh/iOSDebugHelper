@@ -14,6 +14,29 @@ static NSMutableArray *g_events;
 static BOOL g_monitoring = NO;
 
 @implementation DHMonitorEvent
+
+- (NSDictionary *)toDict {
+    return @{
+        @"signature": self.signature ?: @"",
+        @"returnValue": self.returnValue ?: @"",
+        @"callStack": self.callStack ?: @"",
+        @"time": self.time ?: [NSDate date],
+        @"count": @(self.count)
+    };
+}
+
+- (instancetype)initWithDict:(NSDictionary *)dict {
+    self = [super init];
+    if (self) {
+        self.signature = dict[@"signature"];
+        self.returnValue = dict[@"returnValue"];
+        self.callStack = dict[@"callStack"];
+        self.time = dict[@"time"];
+        self.count = [dict[@"count"] integerValue];
+    }
+    return self;
+}
+
 @end
 
 @implementation DHMonitorManager
@@ -25,13 +48,35 @@ static BOOL g_monitoring = NO;
         s = [self new];
         g_origImpMap = [NSMutableDictionary new];
         g_lastHitTime = [NSMutableDictionary new];
-        g_events = [NSMutableArray new];
     });
     return s;
 }
 
+- (NSString *)eventsFilePath {
+    NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *dir = [doc stringByAppendingPathComponent:@"iOSDebugHelper"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    return [dir stringByAppendingPathComponent:@"monitor_events.plist"];
+}
+
 - (BOOL)isMonitoring { return g_monitoring; }
-- (NSArray<DHMonitorEvent *> *)events { return [g_events copy]; }
+
+- (NSArray<DHMonitorEvent *> *)events {
+    NSArray *arr = [NSArray arrayWithContentsOfFile:[self eventsFilePath]];
+    NSMutableArray *result = [NSMutableArray new];
+    for (NSDictionary *dict in arr) {
+        [result addObject:[[DHMonitorEvent alloc] initWithDict:dict]];
+    }
+    return result;
+}
+
+- (void)saveEvents:(NSArray *)events {
+    NSMutableArray *arr = [NSMutableArray new];
+    for (DHMonitorEvent *e in events) {
+        [arr addObject:[e toDict]];
+    }
+    [arr writeToFile:[self eventsFilePath] atomically:YES];
+}
 
 - (NSArray<NSString *> *)allMonitoredMethods {
     NSMutableArray *result = [NSMutableArray new];
@@ -145,10 +190,12 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
             }
         }
         NSString *sig = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
-        @synchronized(g_events) {
+        // 从文件读事件
+        NSMutableArray *events = [NSMutableArray arrayWithArray:[self events]];
+        @synchronized(events) {
             // 去重：找有没有已经记录过这个方法
             DHMonitorEvent *existing = nil;
-            for (DHMonitorEvent *e in g_events) {
+            for (DHMonitorEvent *e in events) {
                 if ([e.signature isEqualToString:sig]) { existing = e; break; }
             }
             if (existing) {
@@ -165,9 +212,10 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
                 e.callStack = [filtered componentsJoinedByString:@"\n"];
                 e.time = [NSDate date];
                 e.count = 1;
-                [g_events addObject:e];
-                if (g_events.count > 200) [g_events removeObjectsInRange:NSMakeRange(0, g_events.count - 200)];
+                [events addObject:e];
             }
+            // 保存到文件
+            [self saveEvents:events];
         }
     });
 }
@@ -219,7 +267,7 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 }
 
 - (void)clearEvents {
-    @synchronized(g_events) { [g_events removeAllObjects]; }
+    [[NSFileManager defaultManager] removeItemAtPath:[self eventsFilePath] error:nil];
 }
 
 @end
