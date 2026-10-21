@@ -184,8 +184,8 @@
     c.detailTextLabel.textColor = [UIColor grayColor];
     c.accessoryType = UITableViewCellAccessoryNone;
 
-    // 第三行：AI 翻译结果（从本地缓存读）
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", h.className, h.selectorName];
+    // 第三行：AI 翻译结果（从本地缓存读，缓存key只用方法名）
+    NSString *cacheKey = h.selectorName;
     NSString *translation = [DHAIManager translationForKey:cacheKey];
     UILabel *thirdLabel = [c.contentView viewWithTag:999];
     if (!thirdLabel) {
@@ -1253,9 +1253,9 @@
     NSString *rowKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
     c.accessoryType = [_selectedSet containsObject:rowKey] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
 
-    // 第三行：AI 翻译结果（先查本地缓存，再查运行时缓存）
+    // 第三行：AI 翻译结果（先查本地缓存，再查运行时缓存，缓存key只用方法名）
     if (!r.dh_translation) {
-        NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+        NSString *cacheKey = r.methodName;
         r.dh_translation = [DHAIManager translationForKey:cacheKey];
     }
     UILabel *thirdLabel = [c.contentView viewWithTag:999];
