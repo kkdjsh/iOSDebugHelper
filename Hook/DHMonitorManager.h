@@ -22,4 +22,5 @@
 - (void)startWithResults:(NSArray<DHScannerResult *> *)results;
 - (void)stop;
 - (void)clearEvents;
+- (NSArray<NSString *> *)allMonitoredMethods;
 @end

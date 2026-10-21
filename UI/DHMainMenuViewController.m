@@ -2075,7 +2075,9 @@
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = mgr.isMonitoring;
     [sw addTarget:self action:@selector(monitorSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
+    UIBarButtonItem *switchItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
+    UIBarButtonItem *listItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"list.bullet"] style:UIBarButtonItemStylePlain target:self action:@selector(showAllMonitoredMethods)];
+    vc.navigationItem.rightBarButtonItems = @[switchItem, listItem];
     vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearMonitorEvents)];
 
     // 点击cell弹出HOOK菜单
@@ -2126,11 +2128,43 @@
 }
 
 - (void)applyMonitorHook:(NSString *)clsName sel:(NSString *)selName type:(DHHookReturnType)type {
+    // 先弹出选择保存位置的菜单
+    NSMutableSet *folderSet = [NSMutableSet setWithArray:[DHPatchListVC dhLoadFolders]];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if (h.folderName.length) [folderSet addObject:h.folderName];
+    }
+    NSArray *folders = [[folderSet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    
+    if (folders.count == 0) {
+        // 没有文件夹，直接存根目录
+        [self doApplyMonitorHook:clsName sel:selName type:type folder:nil];
+        return;
+    }
+    
+    // 有文件夹，弹出选择
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self doApplyMonitorHook:clsName sel:selName type:type folder:nil];
+    }]];
+    for (NSString *fname in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self doApplyMonitorHook:clsName sel:selName type:type folder:fname];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    // 找到当前最顶层的VC来present
+    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+    [topVC presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)doApplyMonitorHook:(NSString *)clsName sel:(NSString *)selName type:(DHHookReturnType)type folder:(NSString *)folder {
     DHHookInfo *h = [DHHookInfo new];
     h.className = clsName;
     h.selectorName = selName;
     h.returnType = type;
     h.enabled = YES;
+    h.folderName = folder;
     // 推断真实返回类型
     NSString *realType;
     if ([selName hasPrefix:@"set"]) realType = @"void";
@@ -2140,7 +2174,40 @@
     h.realReturnType = realType;
     h.argCount = [[selName componentsSeparatedByString:@":"] count] - 1;
     [[DHHookManager sharedManager] addHook:h];
-    [self showToast:[NSString stringWithFormat:@"已HOOK %@", selName]];
+    NSString *loc = folder ?: @"根目录";
+    [self showToast:[NSString stringWithFormat:@"已HOOK %@ → %@", selName, loc]];
+}
+
+- (void)showAllMonitoredMethods {
+    NSArray *allMethods = [[DHMonitorManager shared] allMonitoredMethods];
+    if (allMethods.count == 0) {
+        [self showToast:@"没有监控中的方法"];
+        return;
+    }
+    
+    // 找出哪些已经被调用过了
+    NSMutableSet *calledSignatures = [NSMutableSet new];
+    for (DHMonitorEvent *e in [DHMonitorManager shared].events) {
+        [calledSignatures addObject:e.signature];
+    }
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"全部监控方法 (%lu个)", (unsigned long)allMethods.count] message:nil preferredStyle:UIAlertControllerStyleAlert];
+    
+    // 显示前50个，太多了会崩
+    NSInteger showCount = MIN(allMethods.count, 50);
+    for (NSInteger i = 0; i < showCount; i++) {
+        NSString *sig = allMethods[i];
+        NSString *prefix = [calledSignatures containsObject:sig] ? @"✓ " : @"○ ";
+        [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@%@", prefix, sig] style:UIAlertActionStyleDefault handler:nil]];
+    }
+    if (allMethods.count > 50) {
+        [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"...还有%ld个", (long)(allMethods.count - 50)] style:UIAlertActionStyleDefault handler:nil]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
+    
+    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+    [topVC presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)clearMonitorEvents {
@@ -2212,9 +2279,47 @@
     NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
     cell.textLabel.text = [NSString stringWithFormat:@"%@%@", e.signature, countStr];
     cell.textLabel.font = [UIFont systemFontOfSize:13];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"返回值: %@", e.returnValue ?: @"无"];
-    cell.detailTextLabel.textColor = [UIColor systemBlueColor];
+    
+    // 检查这个方法有没有被HOOK
+    NSString *clsName = @"";
+    NSString *selName = @"";
+    if ([e.signature hasPrefix:@"["] && [e.signature hasSuffix:@"]"]) {
+        NSString *inner = [e.signature substringWithRange:NSMakeRange(1, e.signature.length - 2)];
+        NSRange space = [inner rangeOfString:@" "];
+        if (space.location != NSNotFound) {
+            clsName = [inner substringToIndex:space.location];
+            selName = [inner substringFromIndex:space.location + 1];
+        }
+    }
+    
+    NSString *hookInfo = @"";
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if ([h.className isEqualToString:clsName] && [h.selectorName isEqualToString:selName] && h.enabled) {
+            NSString *hookRet = @"";
+            switch (h.returnType) {
+                case DHHookReturnTrue: hookRet = @"YES"; break;
+                case DHHookReturnFalse: hookRet = @"NO"; break;
+                case DHHookReturnNil: hookRet = @"nil"; break;
+                case DHHookReturnVoid: hookRet = @"void"; break;
+                case DHHookReturnZero: hookRet = @"0"; break;
+                default: hookRet = @"自定义"; break;
+            }
+            hookInfo = [NSString stringWithFormat:@" / HOOK: %@", hookRet];
+            break;
+        }
+    }
+    
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"真实: %@%@", e.returnValue ?: @"无", hookInfo];
+    cell.detailTextLabel.textColor = hookInfo.length ? [UIColor systemRedColor] : [UIColor systemBlueColor];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
+    
+    // 已经HOOK过的方法高亮显示
+    if (hookInfo.length) {
+        cell.backgroundColor = [UIColor colorWithRed:1.0 green:0.95 blue:0.9 alpha:1.0];
+    } else {
+        cell.backgroundColor = [UIColor whiteColor];
+    }
+    
     return cell;
 }
 

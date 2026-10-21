@@ -33,6 +33,21 @@ static BOOL g_monitoring = NO;
 - (BOOL)isMonitoring { return g_monitoring; }
 - (NSArray<DHMonitorEvent *> *)events { return [g_events copy]; }
 
+- (NSArray<NSString *> *)allMonitoredMethods {
+    NSMutableArray *result = [NSMutableArray new];
+    @synchronized(g_origImpMap) {
+        for (NSString *key in g_origImpMap.allKeys) {
+            NSRange sep = [key rangeOfString:@"|"];
+            if (sep.location != NSNotFound) {
+                NSString *cls = [key substringToIndex:sep.location];
+                NSString *sel = [key substringFromIndex:sep.location + 1];
+                [result addObject:[NSString stringWithFormat:@"[%@ %@]", cls, sel]];
+            }
+        }
+    }
+    return [result sortedArrayUsingSelector:@selector(compare:)];
+}
+
 // 通用日志IMP：支持多种返回值类型
 static void dh_log_imp(id self, SEL _cmd, ...) {
     NSString *clsName = NSStringFromClass([self class]);
