@@ -1441,7 +1441,7 @@
 
     // 把过滤+查缓存+去重放到后台线程做，避免卡UI
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // 过滤出没翻译过的方法，按方法名去重
+        // 后台只收集需要翻译的方法名，不修改任何对象的属性，避免线程安全问题
         NSMutableArray *pendingUnique = [NSMutableArray new];
         NSMutableSet *seenMethodNames = [NSMutableSet new];
         NSInteger skipped = 0;
@@ -1450,7 +1450,6 @@
             NSString *cacheKey = r.methodName;
             NSString *cached = [DHAIManager translationForKey:cacheKey];
             if (cached.length > 0) {
-                r.dh_translation = cached;
                 skipped++;
                 continue;
             }
@@ -1464,9 +1463,24 @@
         // 回到主线程开始翻译
         dispatch_async(dispatch_get_main_queue(), ^{
             if (pendingUnique.count == 0) {
+                // 全部都有缓存了，主线程统一设置翻译
+                for (DHScannerResult *r in results) {
+                    if ([r.methodName isEqualToString:@"(class)"]) continue;
+                    if (!r.dh_translation) {
+                        r.dh_translation = [DHAIManager translationForKey:r.methodName];
+                    }
+                }
                 [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
                 [self.tableView reloadData];
                 return;
+            }
+
+            // 主线程统一设置已经有缓存的翻译
+            for (DHScannerResult *r in results) {
+                if ([r.methodName isEqualToString:@"(class)"]) continue;
+                if (!r.dh_translation) {
+                    r.dh_translation = [DHAIManager translationForKey:r.methodName];
+                }
             }
 
             // 分批大小：每批1000个
