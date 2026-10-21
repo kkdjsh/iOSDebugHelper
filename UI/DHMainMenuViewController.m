@@ -2276,7 +2276,7 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"MonitorCell"];
     }
     DHMonitorEvent *e = [DHMonitorManager shared].events[indexPath.row];
-    NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
+    NSString *countStr = [NSString stringWithFormat:@" (×%ld)", (long)e.count];
     cell.textLabel.text = [NSString stringWithFormat:@"%@%@", e.signature, countStr];
     cell.textLabel.font = [UIFont systemFontOfSize:13];
     
