@@ -1076,7 +1076,6 @@
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
     NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
-    UILabel *_progressLabel; // 自动消失的轻量进度条，不阻塞
 }
 
 - (void)viewDidLoad {
@@ -1432,13 +1431,13 @@
 
 - (void)translateWithAI {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
-    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+    if (!cfg.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self showProgress:@"请先在 AI 配置中心填写 API 地址"]; return; }
 
     NSArray *results = self.filteredResults;
-    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
+    if (results.count == 0) { [self showProgress:@"当前无结果可翻译"]; return; }
 
-    [self showToast:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
+    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
     // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
     [self processSliceFrom:0 results:results retryCount:0];
@@ -1451,11 +1450,11 @@
 
     if (startIdx >= results.count) {
         [self.tableView reloadData];
-        [self showToast:@"全部翻译完成！"];
+        [self showProgress:@"全部翻译完成！"];
         return;
     }
 
-    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
+    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
     // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1522,12 +1521,12 @@
             void (^retryBlock)(void) = ^{
                 if (retryCount < maxRetry) {
                     NSInteger newRetry = retryCount + 1;
-                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart+1), (long)rangeEnd, newRetry]];
+                    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart+1), (long)rangeEnd, newRetry]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         [self sendSlice:slice rangeStart:rangeStart rangeEnd:rangeEnd results:results retryCount:newRetry];
                     });
                 } else {
-                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart+1), (long)rangeEnd]];
+                    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart+1), (long)rangeEnd]];
                     nextRound();
                 }
             };
@@ -1866,29 +1865,36 @@
 // 自动消失的轻量进度条，不弹窗、不需要点确定，重复调用只更新文字
 - (void)showProgress:(NSString *)msg {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIView *container = self.navigationController ?: self.view;
-        if (!container) return;
-        if (!_progressLabel) {
-            _progressLabel = [[UILabel alloc] init];
-            _progressLabel.font = [UIFont systemFontOfSize:13];
-            _progressLabel.textColor = [UIColor whiteColor];
-            _progressLabel.textAlignment = NSTextAlignmentCenter;
-            _progressLabel.numberOfLines = 0;
-            _progressLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
-            _progressLabel.layer.cornerRadius = 10;
-            _progressLabel.layer.masksToBounds = YES;
-            _progressLabel.alpha = 0;
-            [container addSubview:_progressLabel];
-        }
-        _progressLabel.text = msg;
-        CGFloat w = MIN(320, container.bounds.size.width - 40);
-        if (w < 120) w = 120;
-        CGSize fit = [_progressLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
-        _progressLabel.frame = CGRectMake((container.bounds.size.width - w)/2, CGRectGetMidY(container.bounds) - 40, w, fit.height + 20);
-        [container bringSubviewToFront:_progressLabel];
-        [UIView animateWithDuration:0.2 animations:^{ _progressLabel.alpha = 1; }];
-        [NSObject cancelPreviousPerformRequestsWithTarget:_progressLabel selector:@selector(setAlpha:) object:nil];
-        [_progressLabel performSelector:@selector(setAlpha:) withObject:@(0.0) afterDelay:2.5];
+        @try {
+            UIView *container = self.view;
+            if (!container) return;
+            // 先移除上一条临时提示条（tag 标记），不用成员变量，避免残留
+            for (UIView *v in container.subviews) {
+                if (v.tag == 99877) [v removeFromSuperview];
+            }
+            UILabel *label = [[UILabel alloc] init];
+            label.tag = 99877;
+            label.font = [UIFont systemFontOfSize:13];
+            label.textColor = [UIColor whiteColor];
+            label.textAlignment = NSTextAlignmentCenter;
+            label.numberOfLines = 0;
+            label.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
+            label.layer.cornerRadius = 10;
+            label.layer.masksToBounds = YES;
+            label.text = msg;
+            CGFloat w = MIN(300, container.bounds.size.width - 40);
+            if (w < 120) w = 120;
+            CGSize fit = [label sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
+            label.frame = CGRectMake((container.bounds.size.width - w)/2, CGRectGetMidY(container.bounds) - 30, w, fit.height + 20);
+            label.alpha = 0;
+            [container addSubview:label];
+            [UIView animateWithDuration:0.2 animations:^{ label.alpha = 1; }];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [UIView animateWithDuration:0.3 animations:^{ label.alpha = 0; } completion:^(BOOL finished) {
+                    [label removeFromSuperview];
+                }];
+            });
+        } @catch (NSException *e) {}
     });
 }
 
