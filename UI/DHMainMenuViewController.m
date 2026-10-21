@@ -1431,21 +1431,17 @@
 }
 
 - (void)translateWithAI {
-    @try {
-        DHAIConfig *cfg = [DHAIManager sharedManager].config;
-        if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
-        if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
 
-        NSArray *results = self.filteredResults;
-        if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
+    NSArray *results = self.filteredResults;
+    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-        [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
+    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
-        // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
-        [self processSliceFrom:0 results:results retryCount:0];
-    } @catch (NSException *e) {
-        [self showToast:[NSString stringWithFormat:@"异常: %@", e.reason]];
-    }
+    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
+    [self processSliceFrom:0 results:results retryCount:0];
 }
 
 // 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
@@ -1461,7 +1457,7 @@
 
     [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
-    // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积；不去重
+    // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *slice = [NSMutableArray new];
         for (NSInteger i = startIdx; i < end; i++) {
@@ -1477,7 +1473,7 @@
 
         dispatch_async(dispatch_get_main_queue(), ^{
             if (slice.count == 0) {
-                // 这一片都是缓存，直接推进下一轮（泄压，不保留）
+                // 这一片全是缓存，直接推进下一轮（泄压，不保留）
                 [self processSliceFrom:end results:results retryCount:0];
                 return;
             }
