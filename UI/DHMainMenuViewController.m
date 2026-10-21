@@ -1828,6 +1828,10 @@
 @property (nonatomic, copy) NSArray *menuSections;
 @end
 
+@interface DHMonitorListVC : UITableViewController
+@property (nonatomic, copy) void(^didSelectEvent)(DHMonitorEvent *e);
+@end
+
 @implementation DHMainMenuViewController
 
 - (void)viewDidLoad {
@@ -2179,10 +2183,6 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-@end
-
-@interface DHMonitorListVC : UITableViewController
-@property (nonatomic, copy) void(^didSelectEvent)(DHMonitorEvent *e);
 @end
 
 @implementation DHMonitorListVC
