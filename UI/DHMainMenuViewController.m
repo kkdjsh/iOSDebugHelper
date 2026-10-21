@@ -1437,48 +1437,55 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"1/3 正在分批收集需要翻译的方法名..."];
+    [self showToast:@"1/3 正在边收集边翻译..."];
 
-    // 方案二：分批收集，每次只遍历1000个，分多次做，避免一次性遍历3万多个崩溃
-    NSMutableArray *pendingUnique = [NSMutableArray new];
+    // 方案一：边遍历边收集，收集满1000个就马上发出去，不用等全部收集完，内存占用最小
     NSMutableSet *seenMethodNames = [NSMutableSet new];
-    NSInteger collectBatchSize = 1000;
+    NSMutableArray *currentBatch = [NSMutableArray new];
+    NSInteger batchSize = 1000;
+    NSInteger totalCollected = 0;
 
+    // 先把当前收集满的批次发出去
+    void (^sendBatch)(void) = ^{
+        if (currentBatch.count == 0) return;
+        NSArray *batchCopy = [currentBatch copy];
+        [currentBatch removeAllObjects];
+        [self translateBatch:batchCopy allResults:results index:0 batchSize:batchSize total:totalCollected skipped:0 retryCount:0];
+    };
+
+    // 分批遍历，每次1000个，避免一次性占满主线程
+    NSInteger collectBatchSize = 1000;
     void (^collectNext)(NSInteger) = ^(NSInteger startIdx) {
         NSInteger end = MIN(startIdx + collectBatchSize, results.count);
         for (NSInteger i = startIdx; i < end; i++) {
             DHScannerResult *r = results[i];
             if ([r.methodName isEqualToString:@"(class)"]) continue;
-            // 去重：同一个方法名只加一次
-            if (![seenMethodNames containsObject:r.methodName]) {
-                [seenMethodNames addObject:r.methodName];
-                // 先查一下缓存，如果已经有了就跳过
-                NSString *cached = [DHAIManager translationForKey:r.methodName];
-                if (cached.length == 0) {
-                    [pendingUnique addObject:r];
-                }
+            // 去重
+            if ([seenMethodNames containsObject:r.methodName]) continue;
+            [seenMethodNames addObject:r.methodName];
+            // 查缓存，已经有了跳过
+            if ([DHAIManager translationForKey:r.methodName].length > 0) continue;
+            // 加到当前批次
+            [currentBatch addObject:r];
+            totalCollected++;
+            // 收集满1000个，马上发出去
+            if (currentBatch.count >= batchSize) {
+                sendBatch();
             }
         }
 
         if (end < results.count) {
-            // 还有下一批，延迟10毫秒继续收集，避免占满主线程
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.01 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 collectNext(end);
             });
         } else {
-            // 收集完成，开始翻译
-            if (pendingUnique.count == 0) {
+            // 遍历完了，把剩下不满1000个的也发出去
+            if (currentBatch.count > 0) {
+                sendBatch();
+            } else {
                 [self showToast:@"全部方法都已经翻译过了"];
                 [self.tableView reloadData];
-                return;
             }
-
-            // 分批大小：每批1000个
-            NSInteger batchSize = 1000;
-            [self showToast:[NSString stringWithFormat:@"2/3 共%ld个唯一方法需要翻译，开始发请求", (long)pendingUnique.count]];
-
-            // 直接开始分批翻译
-            [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:0 retryCount:0];
         }
     };
 
