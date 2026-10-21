@@ -2,6 +2,7 @@
 // 基于 FLEX 二次开发的 iOS 调试助手
 
 #import <UIKit/UIKit.h>
+#import <signal.h>
 #import "DHLogManager.h"
 #import "DHRuleManager.h"
 #import "DHHookManager.h"
@@ -9,6 +10,37 @@
 #import "DHButtonManager.h"
 #import "DHAdScanner.h"
 #import "DHBuiltinKeywords.h"
+
+// 全局崩溃捕获：把异常/信号写到 Documents/iOSDebugHelper/crash.log，便于定位闪退
+static void dh_writeCrash(NSString *txt) {
+    @try {
+        NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        NSString *folder = [dir stringByAppendingPathComponent:@"iOSDebugHelper"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *log = [folder stringByAppendingPathComponent:@"crash.log"];
+        NSString *old = [NSString stringWithContentsOfFile:log encoding:NSUTF8StringEncoding error:nil] ?: @"";
+        [[old stringByAppendingString:txt] writeToFile:log atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } @catch (NSException *e) {}
+}
+
+static void dh_uncaughtException(NSException *e) {
+    dh_writeCrash([NSString stringWithFormat:@"\n=== EXCEPTION %@ ===\n%@\n%@\n", e.name, e.reason, e.callStackSymbols]);
+}
+
+static void dh_signalHandler(int sig) {
+    dh_writeCrash([NSString stringWithFormat:@"\n=== SIGNAL %d (%s) ===\n", sig, strsignal(sig)]);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void dh_installCrashHandler(void) {
+    NSSetUncaughtExceptionHandler(&dh_uncaughtException);
+    signal(SIGSEGV, dh_signalHandler);
+    signal(SIGABRT, dh_signalHandler);
+    signal(SIGBUS, dh_signalHandler);
+    signal(SIGILL, dh_signalHandler);
+    signal(SIGFPE, dh_signalHandler);
+}
 
 static void DHInitializeDebugHelper(void) {
     @autoreleasepool {
@@ -39,6 +71,7 @@ static void DHInitializeDebugHelper(void) {
 }
 
 %ctor {
+    dh_installCrashHandler();
     // 延迟到 App 启动后执行，确保 UIKit 就绪
     dispatch_async(dispatch_get_main_queue(), ^{
         DHInitializeDebugHelper();
