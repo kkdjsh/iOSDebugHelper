@@ -1810,17 +1810,15 @@
 
 #pragma mark - 按钮按压动画
 - (void)btnTouchDown:(UIButton *)b {
-    [UIView animateWithDuration:0.1 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
-        b.transform = CGAffineTransformMakeScale(0.92, 0.92);
-        b.alpha = 0.8;
-    } completion:nil];
+    [UIView animateWithDuration:0.15 animations:^{
+        b.backgroundColor = [b.backgroundColor colorWithAlphaComponent:0.7];
+    }];
 }
 
 - (void)btnTouchUp:(UIButton *)b {
-    [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.8 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-        b.transform = CGAffineTransformIdentity;
-        b.alpha = 1.0;
-    } completion:nil];
+    [UIView animateWithDuration:0.25 animations:^{
+        b.backgroundColor = [b.backgroundColor colorWithAlphaComponent:1.0];
+    }];
 }
 
 @end
