@@ -1443,7 +1443,7 @@
     NSMutableSet *seenMethodNames = [NSMutableSet new];
     NSMutableArray *currentBatch = [NSMutableArray new];
     NSInteger batchSize = 1000;
-    NSInteger totalCollected = 0;
+    __block NSInteger totalCollected = 0;
 
     // 先把当前收集满的批次发出去
     void (^sendBatch)(void) = ^{
