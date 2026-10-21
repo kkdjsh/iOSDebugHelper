@@ -1431,17 +1431,21 @@
 }
 
 - (void)translateWithAI {
-    DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
-    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+    @try {
+        DHAIConfig *cfg = [DHAIManager sharedManager].config;
+        if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
+        if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
 
-    NSArray *results = self.filteredResults;
-    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
+        NSArray *results = self.filteredResults;
+        if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
+        [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
-    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
-    [self processSliceFrom:0 results:results retryCount:0];
+        // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
+        [self processSliceFrom:0 results:results retryCount:0];
+    } @catch (NSException *e) {
+        [self showToast:[NSString stringWithFormat:@"异常: %@", e.reason]];
+    }
 }
 
 // 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
