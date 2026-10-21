@@ -2065,11 +2065,7 @@
 
 - (void)showMonitor {
     DHMonitorManager *mgr = [DHMonitorManager shared];
-    UITextView *tv = [[UITextView alloc] init];
-    tv.editable = NO;
-    tv.font = [UIFont fontWithName:@"Menlo" size:10];
-    UIViewController *vc = [UIViewController new];
-    vc.view = tv;
+    DHMonitorListVC *vc = [[DHMonitorListVC alloc] initWithStyle:UITableViewStylePlain];
     vc.title = @"动态监控";
 
     UISwitch *sw = [[UISwitch alloc] init];
@@ -2078,24 +2074,61 @@
     vc.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
     vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearMonitorEvents)];
 
-    // 刷新显示
-    void(^refresh)(void) = ^{
-        NSMutableString *s = [NSMutableString new];
-        for (DHMonitorEvent *e in mgr.events) {
-            NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
-            [s appendFormat:@"%@%@ → %@\n", e.signature, countStr, e.returnValue];
+    // 点击cell弹出HOOK菜单
+    __weak typeof(vc) weakVC = vc;
+    vc.didSelectEvent = ^(DHMonitorEvent *e) {
+        // 解析类名和方法名
+        NSString *sig = e.signature;
+        NSString *clsName = @"";
+        NSString *selName = @"";
+        if ([sig hasPrefix:@"["] && [sig hasSuffix:@"]"]) {
+            NSString *inner = [sig substringWithRange:NSMakeRange(1, sig.length - 2)];
+            NSRange space = [inner rangeOfString:@" "];
+            if (space.location != NSNotFound) {
+                clsName = [inner substringToIndex:space.location];
+                selName = [inner substringFromIndex:space.location + 1];
+            }
         }
-        tv.text = s.length ? s : @"未启动监控或无事件";
+        if (clsName.length == 0 || selName.length == 0) return;
+
+        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:e.signature message:@"选择HOOK返回值" preferredStyle:UIAlertControllerStyleActionSheet];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"返回 TRUE (YES)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyMonitorHook:clsName sel:selName type:DHHookReturnTrue];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"返回 FALSE (NO)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyMonitorHook:clsName sel:selName type:DHHookReturnFalse];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"返回 nil" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyMonitorHook:clsName sel:selName type:DHHookReturnNil];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"拦截 / 空实现 (void)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyMonitorHook:clsName sel:selName type:DHHookReturnVoid];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"返回 0" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self applyMonitorHook:clsName sel:selName type:DHHookReturnZero];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [weakVC presentViewController:sheet animated:YES completion:nil];
     };
-    refresh();
+
     // 每2秒自动刷新
     [NSTimer scheduledTimerWithTimeInterval:2 repeats:YES block:^(NSTimer *t) {
-        if (!vc.isViewLoaded || !vc.view.window) { [t invalidate]; return; }
-        refresh();
+        if (!weakVC.isViewLoaded || !weakVC.view.window) { [t invalidate]; return; }
+        [weakVC.tableView reloadData];
     }];
 
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)applyMonitorHook:(NSString *)clsName sel:(NSString *)selName type:(DHHookReturnType)type {
+    DHHookInfo *h = [DHHookInfo new];
+    h.className = clsName;
+    h.selectorName = selName;
+    h.returnType = type;
+    h.enabled = YES;
+    [[DHHookManager shared] applyHook:h];
+    [self showToast:[NSString stringWithFormat:@"已HOOK %@", selName]];
 }
 
 - (void)clearMonitorEvents {
@@ -2144,6 +2177,41 @@
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:msg preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+@end
+
+@interface DHMonitorListVC : UITableViewController
+@property (nonatomic, copy) void(^didSelectEvent)(DHMonitorEvent *e);
+@end
+
+@implementation DHMonitorListVC
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"MonitorCell"];
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return [DHMonitorManager shared].events.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"MonitorCell" forIndexPath:indexPath];
+    DHMonitorEvent *e = [DHMonitorManager shared].events[indexPath.row];
+    NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
+    cell.textLabel.text = [NSString stringWithFormat:@"%@%@", e.signature, countStr];
+    cell.textLabel.font = [UIFont systemFontOfSize:13];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"返回: %@", e.returnValue];
+    cell.detailTextLabel.textColor = [UIColor systemBlueColor];
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    DHMonitorEvent *e = [DHMonitorManager shared].events[indexPath.row];
+    if (self.didSelectEvent) self.didSelectEvent(e);
 }
 
 @end
