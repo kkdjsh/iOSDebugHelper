@@ -99,9 +99,28 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 
 - (void)buttonTapped {
     DHLogInfo(@"打开主菜单");
-    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    
+    // 找到最上层的window和VC
+    UIWindow *keyWindow = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                for (UIWindow *w in scene.windows) {
+                    if (!w.hidden && w.windowLevel == UIWindowLevelNormal) {
+                        keyWindow = w;
+                        break;
+                    }
+                }
+            }
+            if (keyWindow) break;
+        }
+    }
+    if (!keyWindow) keyWindow = [UIApplication sharedApplication].keyWindow;
+    if (!keyWindow) keyWindow = [UIApplication sharedApplication].windows.firstObject;
+    
+    UIViewController *topVC = keyWindow.rootViewController;
     while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-
+    
     DHMainMenuViewController *menu = [[DHMainMenuViewController alloc] init];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:menu];
     [topVC presentViewController:nav animated:YES completion:nil];
