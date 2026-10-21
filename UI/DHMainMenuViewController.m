@@ -1112,17 +1112,61 @@
         return b;
     };
 
-    UIBarButtonItem *copyItem = [[UIBarButtonItem alloc] initWithCustomView:pillBtn(@"复制", @selector(batchCopy))];
-    UIBarButtonItem *patchItem = [[UIBarButtonItem alloc] initWithCustomView:pillBtn(@"补丁", @selector(batchPatchMenu))];
-    UIBarButtonItem *boltItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"bolt.fill", @selector(openKeywordMenu))];
-    UIBarButtonItem *eyeItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"eye.fill", @selector(startMonitorFromScan))];
-    UIBarButtonItem *sparkItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"sparkles", @selector(translateWithAI))];
-
-    // 加间距
-    UIBarButtonItem *spacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
-    spacer.width = 8;
-
-    self.navigationItem.rightBarButtonItems = @[copyItem, spacer, patchItem, spacer, boltItem, spacer, sparkItem, spacer, eyeItem];
+    // 把按钮移到header里，不用rightBarButtonItems了，防止某些App导航栏按钮点不动
+    UIButton *eyeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    eyeBtn.frame = CGRectMake(80, 10, 32, 32);
+    [eyeBtn setImage:[UIImage systemImageNamed:@"eye.fill"] forState:UIControlStateNormal];
+    [eyeBtn setTintColor:[UIColor systemBlueColor]];
+    eyeBtn.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    eyeBtn.layer.cornerRadius = 16;
+    eyeBtn.layer.masksToBounds = YES;
+    eyeBtn.imageEdgeInsets = UIEdgeInsetsMake(7, 7, 7, 7);
+    [eyeBtn addTarget:self action:@selector(startMonitorFromScan) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:eyeBtn];
+    
+    UIButton *sparkBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    sparkBtn.frame = CGRectMake(120, 10, 32, 32);
+    [sparkBtn setImage:[UIImage systemImageNamed:@"sparkles"] forState:UIControlStateNormal];
+    [sparkBtn setTintColor:[UIColor systemBlueColor]];
+    sparkBtn.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    sparkBtn.layer.cornerRadius = 16;
+    sparkBtn.layer.masksToBounds = YES;
+    sparkBtn.imageEdgeInsets = UIEdgeInsetsMake(7, 7, 7, 7);
+    [sparkBtn addTarget:self action:@selector(translateWithAI) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:sparkBtn];
+    
+    UIButton *boltBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    boltBtn.frame = CGRectMake(160, 10, 32, 32);
+    [boltBtn setImage:[UIImage systemImageNamed:@"bolt.fill"] forState:UIControlStateNormal];
+    [boltBtn setTintColor:[UIColor systemBlueColor]];
+    boltBtn.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    boltBtn.layer.cornerRadius = 16;
+    boltBtn.layer.masksToBounds = YES;
+    boltBtn.imageEdgeInsets = UIEdgeInsetsMake(7, 7, 7, 7);
+    [boltBtn addTarget:self action:@selector(openKeywordMenu) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:boltBtn];
+    
+    UIButton *patchBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    patchBtn.frame = CGRectMake(200, 12, 50, 28);
+    [patchBtn setTitle:@"补丁" forState:UIControlStateNormal];
+    [patchBtn setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+    patchBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    patchBtn.backgroundColor = [UIColor colorWithRed:0.85 green:0.92 blue:1.0 alpha:1.0];
+    patchBtn.layer.cornerRadius = 14;
+    patchBtn.layer.masksToBounds = YES;
+    [patchBtn addTarget:self action:@selector(batchPatchMenu) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:patchBtn];
+    
+    UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    copyBtn.frame = CGRectMake(258, 12, 50, 28);
+    [copyBtn setTitle:@"复制" forState:UIControlStateNormal];
+    [copyBtn setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+    copyBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    copyBtn.backgroundColor = [UIColor colorWithRed:0.85 green:0.92 blue:1.0 alpha:1.0];
+    copyBtn.layer.cornerRadius = 14;
+    copyBtn.layer.masksToBounds = YES;
+    [copyBtn addTarget:self action:@selector(batchCopy) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:copyBtn];
 
     self.tableView.rowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
