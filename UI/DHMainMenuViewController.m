@@ -1493,7 +1493,7 @@
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             // 失败重试：最多重试2次
-            NSInteger retryCount = 0;
+            __block NSInteger retryCount = 0;
             NSInteger maxRetry = 2;
             
             void (^retryBlock)(void) = ^{
