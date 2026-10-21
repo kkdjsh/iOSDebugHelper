@@ -1438,15 +1438,15 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮2000个，共约%ld轮", (long)((results.count + 1999) / 2000)]];
+    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
-    // 泄压轮次：从第0个开始，每轮只取2000个切片，处理完泄压再进下一轮
+    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
     [self processSliceFrom:0 results:results retryCount:0];
 }
 
-// 处理从startIdx开始的一个切片（2000个），查缓存过滤后提交，完成后推进下一轮
+// 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
 - (void)processSliceFrom:(NSInteger)startIdx results:(NSArray *)results retryCount:(NSInteger)retryCount {
-    NSInteger sliceSize = 2000;
+    NSInteger sliceSize = 1000;
     NSInteger end = MIN(startIdx + sliceSize, results.count);
 
     if (startIdx >= results.count) {
@@ -1457,7 +1457,7 @@
 
     [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
-    // 放后台线程对当前2000个切片查缓存过滤，不卡UI；只收集这一片，不累积；不去重
+    // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积；不去重
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *slice = [NSMutableArray new];
         for (NSInteger i = startIdx; i < end; i++) {
