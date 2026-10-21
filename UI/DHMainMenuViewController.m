@@ -954,13 +954,57 @@
     self.title = @"扫描结果";
     _filterSystemClasses = YES;
     [self setupDefaultKeywordFolders];
-    self.navigationItem.rightBarButtonItems = @[
-        [[UIBarButtonItem alloc] initWithTitle:@"复制" style:UIBarButtonItemStyleDone target:self action:@selector(batchCopy)],
-        [[UIBarButtonItem alloc] initWithTitle:@"补丁" style:UIBarButtonItemStyleDone target:self action:@selector(batchPatchMenu)],
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"bolt.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(openKeywordMenu)],
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"eye.fill"] style:UIBarButtonItemStylePlain target:self action:@selector(startMonitorFromScan)],
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"sparkles"] style:UIBarButtonItemStylePlain target:self action:@selector(translateWithAI)],
-    ];
+
+    // 创建自定义导航栏按钮
+    // 圆形图标按钮工厂
+    UIButton *(^circleBtn)(NSString*, SEL) = ^UIButton*(NSString *iconName, SEL action) {
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+        b.frame = CGRectMake(0, 0, 32, 32);
+        [b setImage:[UIImage systemImageNamed:iconName] forState:UIControlStateNormal];
+        [b setTintColor:[UIColor systemBlueColor]];
+        b.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        b.layer.cornerRadius = 16;
+        b.layer.masksToBounds = YES;
+        b.imageEdgeInsets = UIEdgeInsetsMake(7, 7, 7, 7);
+        [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+        // 加按压动画
+        [b addTarget:self action:@selector(btnTouchDown:) forControlEvents:UIControlEventTouchDown];
+        [b addTarget:self action:@selector(btnTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        return b;
+    };
+
+    // 圆角填充按钮工厂（高频功能）
+    UIButton *(^pillBtn)(NSString*, SEL) = ^UIButton*(NSString *title, SEL action) {
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+        [b setTitle:title forState:UIControlStateNormal];
+        [b setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+        b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        b.backgroundColor = [UIColor colorWithRed:0.85 green:0.92 blue:1.0 alpha:1.0];
+        b.layer.cornerRadius = 14;
+        b.layer.masksToBounds = YES;
+        b.contentEdgeInsets = UIEdgeInsetsMake(5, 12, 5, 12);
+        [b sizeToFit];
+        CGRect f = b.frame;
+        f.size.height = 28;
+        b.frame = f;
+        [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+        [b addTarget:self action:@selector(btnTouchDown:) forControlEvents:UIControlEventTouchDown];
+        [b addTarget:self action:@selector(btnTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        return b;
+    };
+
+    UIBarButtonItem *copyItem = [[UIBarButtonItem alloc] initWithCustomView:pillBtn(@"复制", @selector(batchCopy))];
+    UIBarButtonItem *patchItem = [[UIBarButtonItem alloc] initWithCustomView:pillBtn(@"补丁", @selector(batchPatchMenu))];
+    UIBarButtonItem *boltItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"bolt.fill", @selector(openKeywordMenu))];
+    UIBarButtonItem *eyeItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"eye.fill", @selector(startMonitorFromScan))];
+    UIBarButtonItem *sparkItem = [[UIBarButtonItem alloc] initWithCustomView:circleBtn(@"sparkles", @selector(translateWithAI))];
+
+    // 加间距
+    UIBarButtonItem *spacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+    spacer.width = 8;
+
+    self.navigationItem.rightBarButtonItems = @[copyItem, spacer, patchItem, spacer, boltItem, spacer, eyeItem, spacer, sparkItem];
+
     self.tableView.rowHeight = 60;
     CGFloat w = [UIScreen mainScreen].bounds.size.width;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 52)];
@@ -2086,6 +2130,21 @@
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:msg preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark - 按钮按压动画
+- (void)btnTouchDown:(UIButton *)b {
+    [UIView animateWithDuration:0.1 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        b.transform = CGAffineTransformMakeScale(0.92, 0.92);
+        b.alpha = 0.8;
+    } completion:nil];
+}
+
+- (void)btnTouchUp:(UIButton *)b {
+    [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.8 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        b.transform = CGAffineTransformIdentity;
+        b.alpha = 1.0;
+    } completion:nil];
 }
 
 @end
