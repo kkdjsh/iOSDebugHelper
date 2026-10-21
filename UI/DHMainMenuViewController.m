@@ -2131,7 +2131,7 @@
     h.selectorName = selName;
     h.returnType = type;
     h.enabled = YES;
-    [[DHHookManager shared] applyHook:h];
+    [[DHHookManager sharedManager] applyHook:h];
     [self showToast:[NSString stringWithFormat:@"已HOOK %@", selName]];
 }
 
