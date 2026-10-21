@@ -171,59 +171,75 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
     const char *retType = m ? method_copyReturnType(m) : "";
     NSString *retStr = @"";
     IMP orig = [g_origImpMap[key] pointerValue];
+    
+    // 检测参数个数
+    NSInteger argCount = 0;
+    if (m) {
+        argCount = method_getNumberOfArguments(m) - 2; // 减去self和_cmd
+    }
 
     @try {
-        if (retType[0] == 'B' || retType[0] == 'c') {
-            // BOOL / char
-            BOOL (*origFn)(id, SEL) = (BOOL(*)(id, SEL))orig;
-            BOOL result = origFn(self, _cmd);
-            retStr = result ? @"YES" : @"NO";
-        } else if (retType[0] == 'i' || retType[0] == 's' || retType[0] == 'l' || retType[0] == 'q') {
-            // int / short / long / long long
-            long long (*origFn)(id, SEL) = (long long(*)(id, SEL))orig;
-            long long result = origFn(self, _cmd);
-            retStr = [NSString stringWithFormat:@"%lld", result];
-        } else if (retType[0] == 'f') {
-            // float
-            float (*origFn)(id, SEL) = (float(*)(id, SEL))orig;
-            float result = origFn(self, _cmd);
-            retStr = [NSString stringWithFormat:@"%.4f", result];
-        } else if (retType[0] == 'd') {
-            // double
-            double (*origFn)(id, SEL) = (double(*)(id, SEL))orig;
-            double result = origFn(self, _cmd);
-            retStr = [NSString stringWithFormat:@"%.4f", result];
-        } else if (retType[0] == 'q' || retType[0] == 'L' || retType[0] == 'Q') {
-            // unsigned long / unsigned long long
-            unsigned long long (*origFn)(id, SEL) = (unsigned long long(*)(id, SEL))orig;
-            unsigned long long result = origFn(self, _cmd);
-            retStr = [NSString stringWithFormat:@"%llu", result];
-        } else if (retType[0] == '@' || retType[0] == '#' || retType[0] == ':') {
-            // id / Class / SEL 对象类型
-            id (*origFn)(id, SEL) = (id(*)(id, SEL))orig;
-            id result = origFn(self, _cmd);
-            if (result) {
-                retStr = [NSString stringWithFormat:@"<%@: %p>", NSStringFromClass([result class]), result];
-                // 如果是字符串，直接显示内容
-                if ([result isKindOfClass:[NSString class]]) {
-                    retStr = [NSString stringWithFormat:@"@\"%@\"", result];
+        if (argCount == 0) {
+            // 无参数方法，按原来的方式调用，获取返回值
+            if (retType[0] == 'B' || retType[0] == 'c') {
+                // BOOL / char
+                BOOL (*origFn)(id, SEL) = (BOOL(*)(id, SEL))orig;
+                BOOL result = origFn(self, _cmd);
+                retStr = result ? @"YES" : @"NO";
+            } else if (retType[0] == 'i' || retType[0] == 's' || retType[0] == 'l' || retType[0] == 'q') {
+                // int / short / long / long long
+                long long (*origFn)(id, SEL) = (long long(*)(id, SEL))orig;
+                long long result = origFn(self, _cmd);
+                retStr = [NSString stringWithFormat:@"%lld", result];
+            } else if (retType[0] == 'f') {
+                // float
+                float (*origFn)(id, SEL) = (float(*)(id, SEL))orig;
+                float result = origFn(self, _cmd);
+                retStr = [NSString stringWithFormat:@"%.4f", result];
+            } else if (retType[0] == 'd') {
+                // double
+                double (*origFn)(id, SEL) = (double(*)(id, SEL))orig;
+                double result = origFn(self, _cmd);
+                retStr = [NSString stringWithFormat:@"%.4f", result];
+            } else if (retType[0] == 'q' || retType[0] == 'L' || retType[0] == 'Q') {
+                // unsigned long / unsigned long long
+                unsigned long long (*origFn)(id, SEL) = (unsigned long long(*)(id, SEL))orig;
+                unsigned long long result = origFn(self, _cmd);
+                retStr = [NSString stringWithFormat:@"%llu", result];
+            } else if (retType[0] == '@' || retType[0] == '#' || retType[0] == ':') {
+                // id / Class / SEL 对象类型
+                id (*origFn)(id, SEL) = (id(*)(id, SEL))orig;
+                id result = origFn(self, _cmd);
+                if (result) {
+                    retStr = [NSString stringWithFormat:@"<%@: %p>", NSStringFromClass([result class]), result];
+                    // 如果是字符串，直接显示内容
+                    if ([result isKindOfClass:[NSString class]]) {
+                        retStr = [NSString stringWithFormat:@"@\"%@\"", result];
+                    }
+                } else {
+                    retStr = @"nil";
                 }
+            } else if (retType[0] == 'v') {
+                // void
+                ((void(*)(id, SEL))orig)(self, _cmd);
+                retStr = @"(void)";
+            } else if (retType[0] == '^' || retType[0] == '*') {
+                // 指针类型
+                void * (*origFn)(id, SEL) = (void * (*)(id, SEL))orig;
+                void *result = origFn(self, _cmd);
+                retStr = [NSString stringWithFormat:@"%p", result];
             } else {
-                retStr = @"nil";
+                // 其他类型，默认按void调用
+                ((void(*)(id, SEL))orig)(self, _cmd);
+                retStr = [NSString stringWithFormat:@"(type:%c)", retType[0]];
             }
-        } else if (retType[0] == 'v') {
-            // void
-            ((void(*)(id, SEL))orig)(self, _cmd);
-            retStr = @"(void)";
-        } else if (retType[0] == '^' || retType[0] == '*') {
-            // 指针类型
-            void * (*origFn)(id, SEL) = (void * (*)(id, SEL))orig;
-            void *result = origFn(self, _cmd);
-            retStr = [NSString stringWithFormat:@"%p", result];
         } else {
-            // 其他类型，默认按void调用
-            ((void(*)(id, SEL))orig)(self, _cmd);
-            retStr = [NSString stringWithFormat:@"(type:%c)", retType[0]];
+            // 带参数方法：转换成可变参数函数指针调用，参数自动转发，不会栈不平衡
+            // 这样至少不会崩溃，只是不记录具体返回值
+            id (*origFn)(id, SEL, ...) = (id(*)(id, SEL, ...))orig;
+            // 调用原方法，参数自动转发
+            origFn(self, _cmd);
+            retStr = [NSString stringWithFormat:@"(带%ld个参数)", (long)argCount];
         }
     } @catch (NSException *e) {
         retStr = [NSString stringWithFormat:@"监控异常: %@", e.name];
@@ -271,26 +287,41 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 - (void)startWithResults:(NSArray<DHScannerResult *> *)results {
     if (g_monitoring) return;
     g_monitoring = YES;
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        @synchronized(g_origImpMap) {
-            for (DHScannerResult *r in results) {
-                if ([r.methodName isEqualToString:@"(class)"]) continue;
-                Class cls = NSClassFromString(r.className);
-                if (!cls) continue;
-                if (r.isClassMethod) cls = object_getClass(cls);
-                SEL sel = NSSelectorFromString(r.methodName);
-                Method m = class_getInstanceMethod(cls, sel);
-                if (!m) continue;
+    
+    // 分批hook，每批1000个，避免一次性hook太多卡界面
+    NSInteger batchSize = 1000;
+    NSInteger total = results.count;
+    NSInteger batches = (total + batchSize - 1) / batchSize;
+    
+    for (NSInteger i = 0; i < batches; i++) {
+        NSInteger loc = i * batchSize;
+        NSInteger len = MIN(batchSize, total - loc);
+        NSArray *batch = [results subarrayWithRange:NSMakeRange(loc, len)];
+        
+        // 每批延迟0.1秒执行
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 0.1 * NSEC_PER_SEC)), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @synchronized(g_origImpMap) {
+                for (DHScannerResult *r in batch) {
+                    if ([r.methodName isEqualToString:@"(class)"]) continue;
+                    Class cls = NSClassFromString(r.className);
+                    if (!cls) continue;
+                    if (r.isClassMethod) cls = object_getClass(cls);
+                    SEL sel = NSSelectorFromString(r.methodName);
+                    Method m = class_getInstanceMethod(cls, sel);
+                    if (!m) continue;
 
-                NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
-                if (g_origImpMap[key]) continue;
-                IMP origImp = method_getImplementation(m);
-                g_origImpMap[key] = [NSValue valueWithPointer:origImp];
-                method_setImplementation(m, (IMP)dh_log_imp);
+                    NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+                    if (g_origImpMap[key]) continue;
+                    IMP origImp = method_getImplementation(m);
+                    g_origImpMap[key] = [NSValue valueWithPointer:origImp];
+                    method_setImplementation(m, (IMP)dh_log_imp);
+                }
             }
-        }
-        DHLogInfo(@"动态监控已启动，hook了%lu个方法", (unsigned long)g_origImpMap.count);
-    });
+            if (i == batches - 1) {
+                DHLogInfo(@"动态监控已启动，hook了%lu个方法", (unsigned long)g_origImpMap.count);
+            }
+        });
+    }
 }
 
 - (void)stop {
