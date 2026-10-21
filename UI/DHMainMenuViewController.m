@@ -1432,11 +1432,11 @@
 
 - (void)translateWithAI {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
-    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+    if (!cfg.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self showProgress:@"请先在 AI 配置中心填写 API 地址"]; return; }
 
     NSArray *results = self.filteredResults;
-    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
+    if (results.count == 0) { [self showProgress:@"当前无结果可翻译"]; return; }
 
     [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
@@ -1451,7 +1451,7 @@
 
     if (startIdx >= results.count) {
         [self.tableView reloadData];
-        [self showToast:@"全部翻译完成！"];
+        [self showProgress:@"全部翻译完成！"];
         return;
     }
 
@@ -1867,6 +1867,7 @@
 - (void)showProgress:(NSString *)msg {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *container = self.navigationController ?: self.view;
+        if (!container) return;
         if (!_progressLabel) {
             _progressLabel = [[UILabel alloc] init];
             _progressLabel.font = [UIFont systemFontOfSize:13];
@@ -1881,12 +1882,13 @@
         }
         _progressLabel.text = msg;
         CGFloat w = MIN(320, container.bounds.size.width - 40);
+        if (w < 120) w = 120;
         CGSize fit = [_progressLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
         _progressLabel.frame = CGRectMake((container.bounds.size.width - w)/2, CGRectGetMidY(container.bounds) - 40, w, fit.height + 20);
         [container bringSubviewToFront:_progressLabel];
         [UIView animateWithDuration:0.2 animations:^{ _progressLabel.alpha = 1; }];
         [NSObject cancelPreviousPerformRequestsWithTarget:_progressLabel selector:@selector(setAlpha:) object:nil];
-        [_progressLabel performSelector:@selector(setAlpha:) withObject:@(0.0) afterDelay:1.2];
+        [_progressLabel performSelector:@selector(setAlpha:) withObject:@(0.0) afterDelay:2.5];
     });
 }
 
