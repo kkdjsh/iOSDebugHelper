@@ -947,10 +947,20 @@
         [self showToast:@"还没有翻译记录可导出"];
         return;
     }
-    // 复制到临时目录，用友好文件名
-    NSString *exportPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"翻译缓存_备份.plist"];
-    [[NSFileManager defaultManager] removeItemAtPath:exportPath error:nil];
-    [[NSFileManager defaultManager] copyItemAtPath:cachePath toPath:exportPath error:nil];
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:cachePath];
+    if (dict.count == 0) {
+        [self showToast:@"还没有翻译记录可导出"];
+        return;
+    }
+    // 导出成txt格式，更美观
+    NSMutableString *text = [NSMutableString string];
+    [text appendFormat:@"# 翻译缓存备份\n# 共%lu条\n\n", (unsigned long)dict.count];
+    NSArray *sortedKeys = [[dict allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *key in sortedKeys) {
+        [text appendFormat:@"%@ → %@\n", key, dict[key]];
+    }
+    NSString *exportPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"翻译缓存_备份.txt"];
+    [text writeToFile:exportPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     NSURL *fileURL = [NSURL fileURLWithPath:exportPath];
     UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
     [self presentViewController:activityVC animated:YES completion:nil];
@@ -1273,10 +1283,25 @@
     }
     if (matchedHook) {
         c.textLabel.textColor = [UIColor systemGreenColor];
-        // 在方法名后面加上修改后的返回值
-        NSString *customValue = matchedHook.customValue ?: @"";
-        if (customValue.length > 0) {
-            c.textLabel.text = [NSString stringWithFormat:@"%@ → %@", c.textLabel.text, customValue];
+        // 根据returnType显示对应的返回值
+        NSString *returnStr = @"";
+        switch (matchedHook.returnType) {
+            case DHHookReturnTrue: returnStr = @"TRUE"; break;
+            case DHHookReturnFalse: returnStr = @"FALSE"; break;
+            case DHHookReturnVoid: returnStr = @"void"; break;
+            case DHHookReturnNil: returnStr = @"nil"; break;
+            case DHHookReturnZero: returnStr = @"0"; break;
+            case DHHookReturnCustomString:
+            case DHHookReturnCustomNumber:
+            case DHHookReturnCustomValue:
+                if (matchedHook.customValue) {
+                    returnStr = [NSString stringWithFormat:@"%@", matchedHook.customValue];
+                }
+                break;
+            default: break;
+        }
+        if (returnStr.length > 0) {
+            c.textLabel.text = [NSString stringWithFormat:@"%@ → %@", c.textLabel.text, returnStr];
         }
     } else {
         c.textLabel.textColor = [UIColor labelColor];
