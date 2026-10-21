@@ -1437,7 +1437,7 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"正在预处理..."];
+    [self showToast:@"1/4 正在预处理..."];
 
     // 把过滤+查缓存+去重放到后台线程做，避免卡UI
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1471,7 +1471,7 @@
 
             // 分批大小：每批1000个
             NSInteger batchSize = 1000;
-            [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld个唯一方法，每批%ld个", (long)pendingUnique.count, (long)batchSize]];
+            [self showToast:[NSString stringWithFormat:@"2/4 预处理完成，共%ld个唯一方法，开始翻译", (long)pendingUnique.count]];
 
             // 开始分批翻译（传results进去，翻译完更新所有相同方法名的对象）
             [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:skipped retryCount:0];
@@ -1482,11 +1482,12 @@
 - (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped retryCount:(NSInteger)retryCount {
     if (idx >= pending.count) {
         [self.tableView reloadData];
-        [self showToast:[NSString stringWithFormat:@"全部翻译完成！共%ld个唯一方法（跳过缓存%ld条）", (long)total, (long)skipped]];
+        [self showToast:[NSString stringWithFormat:@"4/4 全部翻译完成！共%ld个唯一方法", (long)total]];
         return;
     }
 
     NSInteger end = MIN(idx + batchSize, pending.count);
+    [self showToast:[NSString stringWithFormat:@"3/4 正在翻译第%ld-%ld个（共%ld个）", (long)(idx+1), (long)end, (long)total]];
     NSArray *batch = [pending subarrayWithRange:NSMakeRange(idx, end - idx)];
 
     NSMutableArray *methodList = [NSMutableArray new];
