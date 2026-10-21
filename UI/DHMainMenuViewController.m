@@ -2131,7 +2131,15 @@
     h.selectorName = selName;
     h.returnType = type;
     h.enabled = YES;
-    [[DHHookManager sharedManager] applyHook:h];
+    // 推断真实返回类型
+    NSString *realType;
+    if ([selName hasPrefix:@"set"]) realType = @"void";
+    else if ([selName hasPrefix:@"is"] || [selName hasPrefix:@"has"] || [selName hasPrefix:@"should"]) realType = @"BOOL";
+    else if ([selName hasPrefix:@"init"]) realType = @"id";
+    else realType = @"id";
+    h.realReturnType = realType;
+    h.argCount = [[selName componentsSeparatedByString:@":"] count] - 1;
+    [[DHHookManager sharedManager] addHook:h];
     [self showToast:[NSString stringWithFormat:@"已HOOK %@", selName]];
 }
 
@@ -2189,7 +2197,6 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"MonitorCell"];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -2197,12 +2204,15 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"MonitorCell" forIndexPath:indexPath];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"MonitorCell"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"MonitorCell"];
+    }
     DHMonitorEvent *e = [DHMonitorManager shared].events[indexPath.row];
     NSString *countStr = e.count > 1 ? [NSString stringWithFormat:@" (×%ld)", (long)e.count] : @"";
     cell.textLabel.text = [NSString stringWithFormat:@"%@%@", e.signature, countStr];
     cell.textLabel.font = [UIFont systemFontOfSize:13];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"返回: %@", e.returnValue];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"返回值: %@", e.returnValue ?: @"无"];
     cell.detailTextLabel.textColor = [UIColor systemBlueColor];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
     return cell;
