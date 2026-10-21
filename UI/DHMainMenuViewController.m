@@ -1437,8 +1437,9 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    // 过滤出没翻译过的方法（缓存key用方法名）
-    NSMutableArray *pending = [NSMutableArray new];
+    // 过滤出没翻译过的方法，按方法名去重
+    NSMutableArray *pendingUnique = [NSMutableArray new];
+    NSMutableSet *seenMethodNames = [NSMutableSet new];
     NSInteger skipped = 0;
     for (DHScannerResult *r in results) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
@@ -1449,26 +1450,30 @@
             skipped++;
             continue;
         }
-        [pending addObject:r];
+        // 去重：同一个方法名只加一次到pending
+        if (![seenMethodNames containsObject:r.methodName]) {
+            [seenMethodNames addObject:r.methodName];
+            [pendingUnique addObject:r];
+        }
     }
-    if (pending.count == 0) {
+    if (pendingUnique.count == 0) {
         [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
         [self.tableView reloadData];
         return;
     }
 
-    // 分批大小：每批1000个，和之前一样
+    // 分批大小：每批1000个
     NSInteger batchSize = 1000;
-    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
+    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld个唯一方法，每批%ld个", (long)pendingUnique.count, (long)batchSize]];
 
-    // 开始分批翻译
-    [self translateBatch:pending index:0 batchSize:batchSize total:pending.count skipped:skipped];
+    // 开始分批翻译（传results进去，翻译完更新所有相同方法名的对象）
+    [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:skipped];
 }
 
-- (void)translateBatch:(NSArray *)pending index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped {
+- (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped {
     if (idx >= pending.count) {
         [self.tableView reloadData];
-        [self showToast:[NSString stringWithFormat:@"全部翻译完成！共%ld条（跳过缓存%ld条）", (long)total, (long)skipped]];
+        [self showToast:[NSString stringWithFormat:@"全部翻译完成！共%ld个唯一方法（跳过缓存%ld条）", (long)total, (long)skipped]];
         return;
     }
 
@@ -1540,7 +1545,7 @@
             NSDictionary *transMap = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&parseErr];
             if (parseErr || !transMap) { retryBlock(); return; }
 
-            // 这一批的结果立刻存缓存（缓存key只用方法名，不用类名）
+            // 这一批的结果立刻存缓存，同时更新所有相同方法名的对象
             NSUInteger hit = 0;
             for (DHScannerResult *r in batch) {
                 NSString *zh = transMap[r.methodName];
@@ -1551,10 +1556,19 @@
                     hit++;
                 }
             }
+            // 遍历所有结果，把相同方法名的对象都更新
+            for (DHScannerResult *r in allResults) {
+                if (!r.dh_translation) {
+                    NSString *zh = transMap[r.methodName];
+                    if (zh && [zh isKindOfClass:[NSString class]]) {
+                        r.dh_translation = zh;
+                    }
+                }
+            }
             [self.tableView reloadData];
 
             // 递归翻译下一批
-            [self translateBatch:pending index:end batchSize:batchSize total:total skipped:skipped];
+            [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped];
         });
     }];
     [task resume];
