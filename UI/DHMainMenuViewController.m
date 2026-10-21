@@ -1467,10 +1467,10 @@
     [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld个唯一方法，每批%ld个", (long)pendingUnique.count, (long)batchSize]];
 
     // 开始分批翻译（传results进去，翻译完更新所有相同方法名的对象）
-    [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:skipped];
+    [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:skipped retryCount:0];
 }
 
-- (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped {
+- (void)translateBatch:(NSArray *)pending allResults:(NSArray *)allResults index:(NSInteger)idx batchSize:(NSInteger)batchSize total:(NSInteger)total skipped:(NSInteger)skipped retryCount:(NSInteger)retryCount {
     if (idx >= pending.count) {
         [self.tableView reloadData];
         [self showToast:[NSString stringWithFormat:@"全部翻译完成！共%ld个唯一方法（跳过缓存%ld条）", (long)total, (long)skipped]];
@@ -1513,21 +1513,20 @@
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             // 失败重试：最多重试2次
-            __block NSInteger retryCount = 0;
             NSInteger maxRetry = 2;
             
             void (^retryBlock)(void) = ^{
                 if (retryCount < maxRetry) {
-                    retryCount++;
-                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条失败，第%ld次重试...", (long)(idx+1), (long)end, retryCount]];
+                    NSInteger newRetryCount = retryCount + 1;
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条失败，第%ld次重试...", (long)(idx+1), (long)end, newRetryCount]];
                     // 延迟1秒后重试
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                        [self translateBatch:pending allResults:allResults index:idx batchSize:batchSize total:total skipped:skipped];
+                        [self translateBatch:pending allResults:allResults index:idx batchSize:batchSize total:total skipped:skipped retryCount:newRetryCount];
                     });
                 } else {
                     // 重试2次都失败，跳过这一批，继续下一批
                     [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败，已跳过", (long)(idx+1), (long)end]];
-                    [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped];
+                    [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped retryCount:0];
                 }
             };
             
@@ -1568,7 +1567,7 @@
             [self.tableView reloadData];
 
             // 递归翻译下一批
-            [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped];
+            [self translateBatch:pending allResults:allResults index:end batchSize:batchSize total:total skipped:skipped retryCount:0];
         });
     }];
     [task resume];
