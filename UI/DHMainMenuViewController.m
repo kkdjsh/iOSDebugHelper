@@ -1437,10 +1437,9 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"1/3 正在边收集边翻译..."];
+    [self showToast:@"1/3 正在收集需要翻译的方法（暂不去重）..."];
 
-    // 方案一：边遍历边收集，收集满1000个就马上发出去，不用等全部收集完，内存占用最小
-    NSMutableSet *seenMethodNames = [NSMutableSet new];
+    // 先测试：保留遍历+查缓存，先去掉去重，减少一个大集合占用内存
     NSMutableArray *currentBatch = [NSMutableArray new];
     NSInteger batchSize = 1000;
     __block NSInteger totalCollected = 0;
@@ -1460,10 +1459,7 @@
         for (NSInteger i = startIdx; i < end; i++) {
             DHScannerResult *r = results[i];
             if ([r.methodName isEqualToString:@"(class)"]) continue;
-            // 去重
-            if ([seenMethodNames containsObject:r.methodName]) continue;
-            [seenMethodNames addObject:r.methodName];
-            // 查缓存，已经有了跳过
+            // 查缓存，已经有了跳过（暂不去重）
             if ([DHAIManager translationForKey:r.methodName].length > 0) continue;
             // 加到当前批次
             [currentBatch addObject:r];
