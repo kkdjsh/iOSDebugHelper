@@ -10,7 +10,9 @@
 
 static NSMutableDictionary *g_origImpMap; // key: "class|sel" -> NSValue(IMP)
 static NSMutableDictionary *g_lastHitTime; // key: "class|sel" -> NSDate
-static NSMutableArray *g_events;
+static NSMutableArray *g_eventsCache; // 内存缓存，定期写入文件
+static dispatch_queue_t g_eventsQueue; // 文件读写串行队列
+static NSInteger g_cacheCount = 0; // 已缓存条数
 static BOOL g_monitoring = NO;
 
 @implementation DHMonitorEvent
@@ -48,6 +50,8 @@ static BOOL g_monitoring = NO;
         s = [self new];
         g_origImpMap = [NSMutableDictionary new];
         g_lastHitTime = [NSMutableDictionary new];
+        g_eventsCache = [NSMutableArray new];
+        g_eventsQueue = dispatch_queue_create("com.debughelper.monitor", DISPATCH_QUEUE_SERIAL);
     });
     return s;
 }
@@ -62,6 +66,11 @@ static BOOL g_monitoring = NO;
 - (BOOL)isMonitoring { return g_monitoring; }
 
 - (NSArray<DHMonitorEvent *> *)events {
+    // 先把缓存里的写入文件，保证数据一致
+    dispatch_sync(g_eventsQueue, ^{
+        [self flushCacheToFile];
+    });
+    // 从文件读
     NSArray *arr = [NSArray arrayWithContentsOfFile:[self eventsFilePath]];
     NSMutableArray *result = [NSMutableArray new];
     for (NSDictionary *dict in arr) {
@@ -70,7 +79,56 @@ static BOOL g_monitoring = NO;
     return result;
 }
 
-- (void)saveEvents:(NSArray *)events {
+// 把缓存写入文件
+- (void)flushCacheToFile {
+    if (g_eventsCache.count == 0) return;
+    
+    // 从文件读已有事件
+    NSMutableArray *allEvents = [NSMutableArray arrayWithArray:[self eventsFromFile]];
+    
+    // 合并缓存里的新事件
+    for (DHMonitorEvent *newEvent in g_eventsCache) {
+        BOOL found = NO;
+        for (NSInteger i = 0; i < allEvents.count; i++) {
+            DHMonitorEvent *e = allEvents[i];
+            if ([e.signature isEqualToString:newEvent.signature]) {
+                // 已存在，更新
+                e.count += newEvent.count;
+                e.returnValue = newEvent.returnValue;
+                e.time = newEvent.time;
+                if (newEvent.callStack.length > 0) e.callStack = newEvent.callStack;
+                found = YES;
+                break;
+            }
+        }
+        if (!found) {
+            [allEvents addObject:newEvent];
+        }
+    }
+    
+    // 最多保留5000条，超过删最老的
+    if (allEvents.count > 5000) {
+        [allEvents removeObjectsInRange:NSMakeRange(0, allEvents.count - 5000)];
+    }
+    
+    // 写回文件
+    [self saveEventsToFile:allEvents];
+    
+    // 清空缓存
+    [g_eventsCache removeAllObjects];
+    g_cacheCount = 0;
+}
+
+- (NSArray *)eventsFromFile {
+    NSArray *arr = [NSArray arrayWithContentsOfFile:[self eventsFilePath]];
+    NSMutableArray *result = [NSMutableArray new];
+    for (NSDictionary *dict in arr) {
+        [result addObject:[[DHMonitorEvent alloc] initWithDict:dict]];
+    }
+    return result;
+}
+
+- (void)saveEventsToFile:(NSArray *)events {
     NSMutableArray *arr = [NSMutableArray new];
     for (DHMonitorEvent *e in events) {
         [arr addObject:[e toDict]];
@@ -190,33 +248,23 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
             }
         }
         NSString *sig = [NSString stringWithFormat:@"[%@ %@]", clsName, selName];
-        // 从文件读事件
-        NSMutableArray *events = [NSMutableArray arrayWithArray:[self events]];
-        @synchronized(events) {
-            // 去重：找有没有已经记录过这个方法
-            DHMonitorEvent *existing = nil;
-            for (DHMonitorEvent *e in events) {
-                if ([e.signature isEqualToString:sig]) { existing = e; break; }
+        
+        // 先加到内存缓存
+        DHMonitorEvent *e = [DHMonitorEvent new];
+        e.signature = sig;
+        e.returnValue = retStr;
+        e.callStack = filtered.count > 0 ? [filtered componentsJoinedByString:@"\n"] : @"";
+        e.time = [NSDate date];
+        e.count = 1;
+        
+        dispatch_async(g_eventsQueue, ^{
+            [g_eventsCache addObject:e];
+            g_cacheCount++;
+            // 缓存达到1000条，批量写入文件
+            if (g_cacheCount >= 1000) {
+                [self flushCacheToFile];
             }
-            if (existing) {
-                // 已存在，计数+1，更新返回值和时间
-                existing.count += 1;
-                existing.returnValue = retStr;
-                existing.time = [NSDate date];
-                if (filtered.count > 0) existing.callStack = [filtered componentsJoinedByString:@"\n"];
-            } else {
-                // 新方法，新增
-                DHMonitorEvent *e = [DHMonitorEvent new];
-                e.signature = sig;
-                e.returnValue = retStr;
-                e.callStack = [filtered componentsJoinedByString:@"\n"];
-                e.time = [NSDate date];
-                e.count = 1;
-                [events addObject:e];
-            }
-            // 保存到文件
-            [self saveEvents:events];
-        }
+        });
     });
 }
 
@@ -267,7 +315,11 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 }
 
 - (void)clearEvents {
-    [[NSFileManager defaultManager] removeItemAtPath:[self eventsFilePath] error:nil];
+    dispatch_async(g_eventsQueue, ^{
+        [g_eventsCache removeAllObjects];
+        g_cacheCount = 0;
+        [[NSFileManager defaultManager] removeItemAtPath:[self eventsFilePath] error:nil];
+    });
 }
 
 @end
