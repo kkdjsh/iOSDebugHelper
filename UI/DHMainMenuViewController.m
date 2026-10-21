@@ -1437,13 +1437,11 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    // 过滤出没翻译过的方法（按方法名去重，同一个方法名只翻译一次）
+    // 过滤出没翻译过的方法（缓存key用方法名）
     NSMutableArray *pending = [NSMutableArray new];
-    NSMutableSet *seenMethodNames = [NSMutableSet new];
     NSInteger skipped = 0;
     for (DHScannerResult *r in results) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
-        // 缓存key只用方法名，不用类名，同一个方法名只翻译一次
         NSString *cacheKey = r.methodName;
         NSString *cached = [DHAIManager translationForKey:cacheKey];
         if (cached.length > 0) {
@@ -1451,14 +1449,7 @@
             skipped++;
             continue;
         }
-        // 去重：同一个方法名只加一次到pending
-        if (![seenMethodNames containsObject:r.methodName]) {
-            [seenMethodNames addObject:r.methodName];
-            [pending addObject:r];
-        } else {
-            // 已经在pending里了，但是这个方法的翻译结果还没存，先标记一下
-            skipped++;
-        }
+        [pending addObject:r];
     }
     if (pending.count == 0) {
         [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
@@ -1466,9 +1457,9 @@
         return;
     }
 
-    // 分批大小：每批500个方法，平衡速度和稳定性
-    NSInteger batchSize = 500;
-    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld个唯一方法，每批%ld个", (long)pending.count, (long)batchSize]];
+    // 分批大小：每批1000个，和之前一样
+    NSInteger batchSize = 1000;
+    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
 
     // 开始分批翻译
     [self translateBatch:pending index:0 batchSize:batchSize total:pending.count skipped:skipped];
@@ -1504,7 +1495,6 @@
             @{@"role": @"user", @"content": [methodList componentsJoinedByString:@"\n"]},
         ],
         @"temperature": @0.3,
-        @"max_tokens": @4096,
         @"response_format": @{@"type": @"json_object"},
     };
 
