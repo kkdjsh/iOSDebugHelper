@@ -358,13 +358,122 @@
 
 - (void)moreMenu {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"更多" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"批量管理" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self enterBatchMode]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"导出配置" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self exportMenu]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"导入配置" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self importMenu]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (NSString *)buildExportTextForHooks:(NSArray<DHHookInfo *> *)hooks folderName:(NSString *)fname {
+#pragma mark - 批量管理
+- (void)enterBatchMode {
+    self.tableView.allowsMultipleSelection = YES;
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"全选" style:UIBarButtonItemStylePlain target:self action:@selector(selectAll)];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(exitBatchMode)];
+    
+    // 底部工具栏
+    UIToolbar *toolbar = [[UIToolbar alloc] init];
+    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+    UIBarButtonItem *deleteBtn = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:UIBarButtonItemStylePlain target:self action:@selector(batchDelete)];
+    UIBarButtonItem *moveBtn = [[UIBarButtonItem alloc] initWithTitle:@"移动到文件夹" style:UIBarButtonItemStylePlain target:self action:@selector(batchMove)];
+    UIBarButtonItem *flex = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    toolbar.items = @[deleteBtn, flex, moveBtn];
+    
+    [self.view addSubview:toolbar];
+    [NSLayoutConstraint activateConstraints:@[
+        toolbar.leadingAnchor.constraintEqualToAnchor:self.view.leadingAnchor,
+        toolbar.trailingAnchor.constraintEqualToAnchor:self.view.trailingAnchor,
+        toolbar.bottomAnchor.constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor
+    ]];
+    
+    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 44, 0);
+}
+
+- (void)exitBatchMode {
+    self.tableView.allowsMultipleSelection = NO;
+    self.navigationItem.leftBarButtonItem = nil;
+    self.navigationItem.rightBarButtonItem = nil;
+    // 移除底部工具栏
+    for (UIView *v in self.view.subviews) {
+        if ([v isKindOfClass:[UIToolbar class]]) [v removeFromSuperview];
+    }
+    self.tableView.contentInset = UIEdgeInsetsZero;
+    [self.tableView reloadData];
+}
+
+- (void)selectAll {
+    NSInteger section = self.currentFolder ? 0 : 1; // 只选补丁行，不选文件夹
+    NSInteger count = [self.tableView numberOfRowsInSection:section];
+    for (NSInteger i = 0; i < count; i++) {
+        NSIndexPath *ip = [NSIndexPath indexPathForRow:i inSection:section];
+        [self.tableView selectRowAtIndexPath:ip animated:NO scrollPosition:UITableViewScrollPositionNone];
+    }
+}
+
+- (NSArray *)selectedHooks {
+    NSArray *indexPaths = [self.tableView indexPathsForSelectedRows];
+    NSMutableArray *result = [NSMutableArray new];
+    for (NSIndexPath *ip in indexPaths) {
+        if (!self.currentFolder && ip.section == 0) continue; // 跳过文件夹
+        NSInteger row = ip.row;
+        NSArray *hooks = [self visibleHooks];
+        if (row < hooks.count) [result addObject:hooks[row]];
+    }
+    return result;
+}
+
+- (void)batchDelete {
+    NSArray *selected = [self selectedHooks];
+    if (selected.count == 0) {
+        [self showToast:@"请先选择要删除的补丁"];
+        return;
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认删除" message:[NSString stringWithFormat:@"确定删除%ld个补丁？", (long)selected.count] preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        for (DHHookInfo *h in selected) {
+            [[DHHookManager sharedManager] removeHook:h];
+        }
+        [self showToast:[NSString stringWithFormat:@"已删除%ld个补丁", (long)selected.count]];
+        [self exitBatchMode];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)batchMove {
+    NSArray *selected = [self selectedHooks];
+    if (selected.count == 0) {
+        [self showToast:@"请先选择要移动的补丁"];
+        return;
+    }
+    NSArray *folders = [self folderNames];
+    if (folders.count == 0) {
+        [self showToast:@"没有文件夹，请先创建文件夹"];
+        return;
+    }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"移动到文件夹" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *fname in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            for (DHHookInfo *h in selected) {
+                h.folderName = fname;
+            }
+            [[DHHookManager sharedManager] saveHooks];
+            [self showToast:[NSString stringWithFormat:@"已移动%ld个补丁到%@", (long)selected.count, fname]];
+            [self exitBatchMode];
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)showToast:(NSString *)msg {
+    UIAlertController *t = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:t animated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [t dismissViewControllerAnimated:YES completion:nil]; });
+    }];
+}
     NSMutableString *text = [NSMutableString new];
     if (fname) [text appendFormat:@"// FolderName: %@\n", fname];
     [text appendString:@"// Generated by iOS调试助手\n\n"];
