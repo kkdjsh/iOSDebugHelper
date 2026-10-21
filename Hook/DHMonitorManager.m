@@ -174,20 +174,6 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 
 - (void)startWithResults:(NSArray<DHScannerResult *> *)results {
     if (g_monitoring) return;
-    
-    // 数量上限保护，防止hook太多方法闪退
-    NSInteger maxCount = 200;
-    if (results.count > maxCount) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"监控数量过多" message:[NSString stringWithFormat:@"当前有%lu个方法，最多同时监控%ld个，请先筛选或选择少量方法再监控", (unsigned long)results.count, (long)maxCount] preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
-            UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-            while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-            [topVC presentViewController:alert animated:YES completion:nil];
-        });
-        return;
-    }
-    
     g_monitoring = YES;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @synchronized(g_origImpMap) {
