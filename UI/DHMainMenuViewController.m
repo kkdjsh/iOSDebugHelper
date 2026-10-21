@@ -1262,14 +1262,22 @@
     thirdLabel.hidden = (r.dh_translation.length == 0);
     thirdLabel.frame = CGRectMake(16, 44, c.contentView.bounds.size.width - 56, 14);
 
-    // 已存在的补丁高亮绿色
+    // 已存在的补丁高亮绿色，并显示修改后的返回值
     NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
-    NSMutableSet *existing = [NSMutableSet new];
+    DHHookInfo *matchedHook = nil;
     for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-        [existing addObject:[NSString stringWithFormat:@"%@|%@", h.className, h.selectorName]];
+        if ([h.className isEqualToString:r.className] && [h.selectorName isEqualToString:r.methodName]) {
+            matchedHook = h;
+            break;
+        }
     }
-    if ([existing containsObject:key]) {
+    if (matchedHook) {
         c.textLabel.textColor = [UIColor systemGreenColor];
+        // 在方法名后面加上修改后的返回值
+        NSString *customValue = matchedHook.customValue ?: @"";
+        if (customValue.length > 0) {
+            c.textLabel.text = [NSString stringWithFormat:@"%@ → %@", c.textLabel.text, customValue];
+        }
     } else {
         c.textLabel.textColor = [UIColor labelColor];
     }
@@ -1404,19 +1412,28 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    // 过滤出没翻译过的方法
+    // 过滤出没翻译过的方法（按方法名去重，同一个方法名只翻译一次）
     NSMutableArray *pending = [NSMutableArray new];
+    NSMutableSet *seenMethodNames = [NSMutableSet new];
     NSInteger skipped = 0;
     for (DHScannerResult *r in results) {
         if ([r.methodName isEqualToString:@"(class)"]) continue;
-        NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+        // 缓存key只用方法名，不用类名，同一个方法名只翻译一次
+        NSString *cacheKey = r.methodName;
         NSString *cached = [DHAIManager translationForKey:cacheKey];
         if (cached.length > 0) {
             r.dh_translation = cached;
             skipped++;
             continue;
         }
-        [pending addObject:r];
+        // 去重：同一个方法名只加一次到pending
+        if (![seenMethodNames containsObject:r.methodName]) {
+            [seenMethodNames addObject:r.methodName];
+            [pending addObject:r];
+        } else {
+            // 已经在pending里了，但是这个方法的翻译结果还没存，先标记一下
+            skipped++;
+        }
     }
     if (pending.count == 0) {
         [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
@@ -1424,9 +1441,9 @@
         return;
     }
 
-    // 分批大小：每批200个，防止请求体太大卡内存
-    NSInteger batchSize = 200;
-    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld条，每批%ld条", (long)pending.count, (long)batchSize]];
+    // 分批大小：每批500个方法，平衡速度和稳定性
+    NSInteger batchSize = 500;
+    [self showToast:[NSString stringWithFormat:@"开始翻译，共%ld个唯一方法，每批%ld个", (long)pending.count, (long)batchSize]];
 
     // 开始分批翻译
     [self translateBatch:pending index:0 batchSize:batchSize total:pending.count skipped:skipped];
@@ -1475,27 +1492,46 @@
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            // 失败重试：最多重试2次
+            NSInteger retryCount = 0;
+            NSInteger maxRetry = 2;
+            
+            void (^retryBlock)(void) = ^{
+                if (retryCount < maxRetry) {
+                    retryCount++;
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条失败，第%ld次重试...", (long)(idx+1), (long)end, retryCount]];
+                    // 延迟1秒后重试
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        [self translateBatch:pending index:idx batchSize:batchSize total:total skipped:skipped];
+                    });
+                } else {
+                    // 重试2次都失败，跳过这一批，继续下一批
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败，已跳过", (long)(idx+1), (long)end]];
+                    [self translateBatch:pending index:end batchSize:batchSize total:total skipped:skipped];
+                }
+            };
+            
             if (error) {
-                [self showToast:[NSString stringWithFormat:@"第%ld-%ld条翻译失败: %@。已翻译的已保存，重新点翻译可继续", (long)(idx+1), (long)end, error.localizedDescription]];
+                retryBlock();
                 return;
             }
             NSError *jsonErr;
             NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
-            if (jsonErr) { [self showToast:@"返回数据解析失败"]; return; }
+            if (jsonErr) { retryBlock(); return; }
             NSString *content = json[@"choices"][0][@"message"][@"content"];
-            if (!content.length) { [self showToast:@"AI 返回为空"]; return; }
+            if (!content.length) { retryBlock(); return; }
 
             NSError *parseErr;
             NSDictionary *transMap = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&parseErr];
-            if (parseErr || !transMap) { [self showToast:@"AI 返回格式错误"]; return; }
+            if (parseErr || !transMap) { retryBlock(); return; }
 
-            // 这一批的结果立刻存缓存
+            // 这一批的结果立刻存缓存（缓存key只用方法名，不用类名）
             NSUInteger hit = 0;
             for (DHScannerResult *r in batch) {
                 NSString *zh = transMap[r.methodName];
                 if (zh && [zh isKindOfClass:[NSString class]]) {
                     r.dh_translation = zh;
-                    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
+                    NSString *cacheKey = r.methodName;
                     [DHAIManager setTranslation:zh forKey:cacheKey];
                     hit++;
                 }
@@ -1664,6 +1700,10 @@
 }
 
 - (BOOL)passFunnelFilter:(DHScannerResult *)r {
+    // 选了仅看BOOL或仅看void的时候，过滤掉@interface类声明行
+    if (_filterBOOLOnly || _filterVoidOnly) {
+        if ([r.methodName isEqualToString:@"(class)"]) return NO;
+    }
     if (_filterSystemClasses) {
         NSString *cn = r.className;
         if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
