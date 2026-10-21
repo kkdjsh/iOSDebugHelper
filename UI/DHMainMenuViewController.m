@@ -1437,58 +1437,39 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showToast:@"1/4 正在预处理..."];
+    [self showToast:@"1/3 正在后台收集需要翻译的方法名..."];
 
-    // 把过滤+查缓存+去重放到后台线程做，避免卡UI
+    // 方案三：后台线程收集唯一方法名，不修改任何对象属性
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // 后台只收集需要翻译的方法名，不修改任何对象的属性，避免线程安全问题
         NSMutableArray *pendingUnique = [NSMutableArray new];
         NSMutableSet *seenMethodNames = [NSMutableSet new];
-        NSInteger skipped = 0;
         for (DHScannerResult *r in results) {
             if ([r.methodName isEqualToString:@"(class)"]) continue;
-            NSString *cacheKey = r.methodName;
-            NSString *cached = [DHAIManager translationForKey:cacheKey];
-            if (cached.length > 0) {
-                skipped++;
-                continue;
-            }
-            // 去重：同一个方法名只加一次到pending
+            // 去重：同一个方法名只加一次
             if (![seenMethodNames containsObject:r.methodName]) {
                 [seenMethodNames addObject:r.methodName];
-                [pendingUnique addObject:r];
+                // 先查一下缓存，如果已经有了就跳过
+                NSString *cached = [DHAIManager translationForKey:r.methodName];
+                if (cached.length == 0) {
+                    [pendingUnique addObject:r];
+                }
             }
         }
 
         // 回到主线程开始翻译
         dispatch_async(dispatch_get_main_queue(), ^{
             if (pendingUnique.count == 0) {
-                // 全部都有缓存了，主线程统一设置翻译
-                for (DHScannerResult *r in results) {
-                    if ([r.methodName isEqualToString:@"(class)"]) continue;
-                    if (!r.dh_translation) {
-                        r.dh_translation = [DHAIManager translationForKey:r.methodName];
-                    }
-                }
-                [self showToast:[NSString stringWithFormat:@"全部%ld条都有缓存了", (long)skipped]];
+                [self showToast:@"全部方法都已经翻译过了"];
                 [self.tableView reloadData];
                 return;
             }
 
-            // 主线程统一设置已经有缓存的翻译
-            for (DHScannerResult *r in results) {
-                if ([r.methodName isEqualToString:@"(class)"]) continue;
-                if (!r.dh_translation) {
-                    r.dh_translation = [DHAIManager translationForKey:r.methodName];
-                }
-            }
-
             // 分批大小：每批1000个
             NSInteger batchSize = 1000;
-            [self showToast:[NSString stringWithFormat:@"2/4 预处理完成，共%ld个唯一方法，开始翻译", (long)pendingUnique.count]];
+            [self showToast:[NSString stringWithFormat:@"2/3 共%ld个唯一方法需要翻译，开始发请求", (long)pendingUnique.count]];
 
-            // 开始分批翻译（传results进去，翻译完更新所有相同方法名的对象）
-            [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:skipped retryCount:0];
+            // 直接开始分批翻译
+            [self translateBatch:pendingUnique allResults:results index:0 batchSize:batchSize total:pendingUnique.count skipped:0 retryCount:0];
         });
     });
 }
