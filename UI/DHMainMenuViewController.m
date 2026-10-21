@@ -1432,13 +1432,13 @@
 
 - (void)translateWithAI {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
-    if (!cfg.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; return; }
-    if (!cfg.apiURL.length) { [self showProgress:@"请先在 AI 配置中心填写 API 地址"]; return; }
+    if (!cfg.apiKey.length) { [self showToast:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self showToast:@"请先在 AI 配置中心填写 API 地址"]; return; }
 
     NSArray *results = self.filteredResults;
-    if (results.count == 0) { [self showProgress:@"当前无结果可翻译"]; return; }
+    if (results.count == 0) { [self showToast:@"当前无结果可翻译"]; return; }
 
-    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
+    [self showToast:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
     // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
     [self processSliceFrom:0 results:results retryCount:0];
@@ -1451,11 +1451,11 @@
 
     if (startIdx >= results.count) {
         [self.tableView reloadData];
-        [self showProgress:@"全部翻译完成！"];
+        [self showToast:@"全部翻译完成！"];
         return;
     }
 
-    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
+    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx+1), (long)end, (long)results.count]];
 
     // 放后台线程对当前1000个切片查缓存过滤，不卡UI；只收集这一片，不累积
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1522,12 +1522,12 @@
             void (^retryBlock)(void) = ^{
                 if (retryCount < maxRetry) {
                     NSInteger newRetry = retryCount + 1;
-                    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart+1), (long)rangeEnd, newRetry]];
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart+1), (long)rangeEnd, newRetry]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         [self sendSlice:slice rangeStart:rangeStart rangeEnd:rangeEnd results:results retryCount:newRetry];
                     });
                 } else {
-                    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart+1), (long)rangeEnd]];
+                    [self showToast:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart+1), (long)rangeEnd]];
                     nextRound();
                 }
             };
