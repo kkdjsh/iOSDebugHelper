@@ -33,7 +33,7 @@ static BOOL g_monitoring = NO;
 - (BOOL)isMonitoring { return g_monitoring; }
 - (NSArray<DHMonitorEvent *> *)events { return [g_events copy]; }
 
-// 通用日志IMP：安全处理void和BOOL
+// 通用日志IMP：支持多种返回值类型
 static void dh_log_imp(id self, SEL _cmd, ...) {
     NSString *clsName = NSStringFromClass([self class]);
     NSString *selName = NSStringFromSelector(_cmd);
@@ -48,19 +48,63 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
         else g_lastHitTime[key] = now;
     }
 
-    // 调原方法
+    // 调原方法并获取返回值
     Method m = class_getInstanceMethod([self class], _cmd);
     const char *retType = m ? method_copyReturnType(m) : "";
     NSString *retStr = @"";
     IMP orig = [g_origImpMap[key] pointerValue];
 
     if (retType[0] == 'B' || retType[0] == 'c') {
+        // BOOL / char
         BOOL (*origFn)(id, SEL) = (BOOL(*)(id, SEL))orig;
         BOOL result = origFn(self, _cmd);
         retStr = result ? @"YES" : @"NO";
-    } else {
+    } else if (retType[0] == 'i' || retType[0] == 's' || retType[0] == 'l' || retType[0] == 'q') {
+        // int / short / long / long long
+        long long (*origFn)(id, SEL) = (long long(*)(id, SEL))orig;
+        long long result = origFn(self, _cmd);
+        retStr = [NSString stringWithFormat:@"%lld", result];
+    } else if (retType[0] == 'f') {
+        // float
+        float (*origFn)(id, SEL) = (float(*)(id, SEL))orig;
+        float result = origFn(self, _cmd);
+        retStr = [NSString stringWithFormat:@"%.4f", result];
+    } else if (retType[0] == 'd') {
+        // double
+        double (*origFn)(id, SEL) = (double(*)(id, SEL))orig;
+        double result = origFn(self, _cmd);
+        retStr = [NSString stringWithFormat:@"%.4f", result];
+    } else if (retType[0] == 'q' || retType[0] == 'L' || retType[0] == 'Q') {
+        // unsigned long / unsigned long long
+        unsigned long long (*origFn)(id, SEL) = (unsigned long long(*)(id, SEL))orig;
+        unsigned long long result = origFn(self, _cmd);
+        retStr = [NSString stringWithFormat:@"%llu", result];
+    } else if (retType[0] == '@' || retType[0] == '#' || retType[0] == ':') {
+        // id / Class / SEL 对象类型
+        id (*origFn)(id, SEL) = (id(*)(id, SEL))orig;
+        id result = origFn(self, _cmd);
+        if (result) {
+            retStr = [NSString stringWithFormat:@"<%@: %p>", NSStringFromClass([result class]), result];
+            // 如果是字符串，直接显示内容
+            if ([result isKindOfClass:[NSString class]]) {
+                retStr = [NSString stringWithFormat:@"@\"%@\"", result];
+            }
+        } else {
+            retStr = @"nil";
+        }
+    } else if (retType[0] == 'v') {
+        // void
         ((void(*)(id, SEL))orig)(self, _cmd);
         retStr = @"(void)";
+    } else if (retType[0] == '^' || retType[0] == '*') {
+        // 指针类型
+        void * (*origFn)(id, SEL) = (void * (*)(id, SEL))orig;
+        void *result = origFn(self, _cmd);
+        retStr = [NSString stringWithFormat:@"%p", result];
+    } else {
+        // 其他类型，默认按void调用
+        ((void(*)(id, SEL))orig)(self, _cmd);
+        retStr = [NSString stringWithFormat:@"(type:%c)", retType[0]];
     }
     if (m) free((void *)retType);
 
@@ -105,10 +149,6 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
                 SEL sel = NSSelectorFromString(r.methodName);
                 Method m = class_getInstanceMethod(cls, sel);
                 if (!m) continue;
-                // 只hook void和BOOL类型，安全
-                const char *retType = method_copyReturnType(m);
-                if (!retType || (retType[0] != 'v' && retType[0] != 'B' && retType[0] != 'c')) { free((void *)retType); continue; }
-                free((void *)retType);
 
                 NSString *key = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
                 if (g_origImpMap[key]) continue;
