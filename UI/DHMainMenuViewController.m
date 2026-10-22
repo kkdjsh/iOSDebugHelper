@@ -968,52 +968,89 @@
 }
 
 - (void)importTranslationCache {
-    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.data"] inMode:UIDocumentPickerModeImport];
-    picker.delegate = self;
-    picker.allowsMultipleSelection = NO;
-    [self presentViewController:picker animated:YES completion:nil];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"导入翻译" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"从文件导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.data"] inMode:UIDocumentPickerModeImport];
+        picker.delegate = self;
+        picker.allowsMultipleSelection = NO;
+        [self presentViewController:picker animated:YES completion:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"粘贴AI结果导入（剪贴板）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self applyImportedText:[UIPasteboard generalPasteboard].string];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// 解析任意来源文本：AI返回的JSON字典 / 箭头txt / 带```代码围栏，返回{方法名:中文}
+- (NSDictionary *)parseTranslationText:(NSString *)raw {
+    if (!raw) return nil;
+    NSMutableDictionary *out = [NSMutableDictionary new];
+    NSString *t = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    // 剥离 ```json 代码围栏
+    t = [t stringByReplacingOccurrencesOfString:@"```json" withString:@""];
+    t = [t stringByReplacingOccurrencesOfString:@"```JSON" withString:@""];
+    t = [t stringByReplacingOccurrencesOfString:@"```" withString:@""];
+
+    // 1) 尝试 JSON 字典
+    NSData *data = [t dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *je;
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        for (NSString *k in [(NSDictionary *)obj allKeys]) {
+            NSString *v = [obj[k] isKindOfClass:[NSString class]] ? obj[k] : nil;
+            if (k.length > 0 && v.length > 0) out[k] = v;
+        }
+        if (out.count > 0) return out;
+    }
+
+    // 2) 箭头 txt 逐行：方法名 → 中文，跳过 # 注释和空行
+    NSArray *lines = [raw componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSCharacterSet *trim = [NSCharacterSet whitespaceCharacterSet];
+    for (NSString *line in lines) {
+        NSString *s = [line stringByTrimmingCharactersInSet:trim];
+        if (s.length == 0 || [s hasPrefix:@"#"]) continue;
+        NSString *sep = nil;
+        for (NSString *c in @[@" → ", @"→", @"->", @" = ", @"=", @"："]) {
+            if ([s rangeOfString:c].location != NSNotFound) { sep = c; break; }
+        }
+        if (!sep) continue;
+        NSRange r = [s rangeOfString:sep];
+        NSString *key = [[s substringToIndex:r.location] stringByTrimmingCharactersInSet:trim];
+        NSString *val = [[s substringFromIndex:r.location + r.length] stringByTrimmingCharactersInSet:trim];
+        if (key.length > 0 && val.length > 0) out[key] = val;
+    }
+    return out.count > 0 ? out : nil;
+}
+
+- (void)applyImportedText:(NSString *)raw {
+    NSDictionary *parsed = [self parseTranslationText:raw];
+    if (!parsed) { [self showToast:@"导入失败：无法识别格式（需JSON或 方法名→中文）"]; return; }
+    [self applyImportedDict:parsed];
+}
+
+- (void)applyImportedDict:(NSDictionary *)dict {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
+    NSMutableDictionary *local = [NSMutableDictionary dictionaryWithContentsOfFile:cachePath] ?: [NSMutableDictionary new];
+    [local addEntriesFromDictionary:dict];
+    [local writeToFile:cachePath atomically:YES];
+    [self showToast:[NSString stringWithFormat:@"导入成功，共%lu条翻译", (unsigned long)local.count]];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     if (urls.count == 0) return;
     NSURL *url = urls[0];
 
-    NSMutableDictionary *merged = [NSMutableDictionary new];
-
-    // 1) 先尝试当 plist 字典（兼容旧备份）
+    // 1) 先尝试 plist 字典文件（兼容旧备份）
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfURL:url error:nil];
-    if (dict) {
-        [merged addEntriesFromDictionary:dict];
-    } else {
-        // 2) 按导出的 txt 解析：每行 “方法名 → 中文”，跳过 # 注释和空行
-        NSString *raw = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
-        if (!raw) { [self showToast:@"导入失败：文件格式错误"]; return; }
-        NSArray *lines = [raw componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-        NSCharacterSet *trim = [NSCharacterSet whitespaceCharacterSet];
-        for (NSString *line in lines) {
-            NSString *t = [line stringByTrimmingCharactersInSet:trim];
-            if (t.length == 0 || [t hasPrefix:@"#"]) continue;
-            NSString *sep = nil;
-            for (NSString *candidate in @[@" → ", @"→", @"->", @" = ", @"=", @"："]) {
-                if ([t rangeOfString:candidate].location != NSNotFound) { sep = candidate; break; }
-            }
-            if (!sep) continue;
-            NSRange r = [t rangeOfString:sep];
-            NSString *key = [[t substringToIndex:r.location] stringByTrimmingCharactersInSet:trim];
-            NSString *value = [[t substringFromIndex:r.location + r.length] stringByTrimmingCharactersInSet:trim];
-            if (key.length > 0 && value.length > 0) { merged[key] = value; }
-        }
-    }
+    if (dict) { [self applyImportedDict:dict]; return; }
 
-    if (merged.count == 0) { [self showToast:@"导入失败：文件格式错误"]; return; }
-
-    // 合并到本地缓存
-    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-    NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
-    NSMutableDictionary *local = [NSMutableDictionary dictionaryWithContentsOfFile:cachePath] ?: [NSMutableDictionary new];
-    [local addEntriesFromDictionary:merged];
-    [local writeToFile:cachePath atomically:YES];
-    [self showToast:[NSString stringWithFormat:@"导入成功，共%lu条翻译", (unsigned long)local.count]];
+    // 2) 读文本，按 JSON / 箭头txt 解析
+    NSString *raw = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+    NSDictionary *parsed = [self parseTranslationText:raw];
+    if (!parsed) { [self showToast:@"导入失败：文件格式错误"]; return; }
+    [self applyImportedDict:parsed];
 }
 
 - (NSString *)fullAPIURL {
@@ -1101,6 +1138,7 @@
     BOOL _filterClassMethods;
     BOOL _filterInstanceMethods;
     NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
+    NSInteger _copyFormat; // 0=类名+方法名 1=仅方法名 2=仅类名
 }
 
 - (void)viewDidLoad {
@@ -1589,6 +1627,21 @@
 }
 
 - (void)batchCopy {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"复制格式" message:@"先选复制内容，再输入区间" preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"仅方法名（适合发AI翻译）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self->_copyFormat = 1; [self presentCopyRangeInput];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"仅类名" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self->_copyFormat = 2; [self presentCopyRangeInput];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"类名 + 方法名（原格式）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self->_copyFormat = 0; [self presentCopyRangeInput];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentCopyRangeInput {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"批量复制"
                                                             message:@"输入区间，如 1-50 或 30-50\n单数字5 = 复制前5条"
                                                      preferredStyle:UIAlertControllerStyleAlert];
@@ -1618,7 +1671,13 @@
     NSMutableArray *lines = [NSMutableArray new];
     for (NSInteger i = start; i < end; i++) {
         DHScannerResult *r = self.filteredResults[i];
-        [lines addObject:[NSString stringWithFormat:@"-%@ In Class: %@", r.methodName, r.className]];
+        if (_copyFormat == 1) {
+            [lines addObject:r.methodName ?: @""];
+        } else if (_copyFormat == 2) {
+            [lines addObject:r.className ?: @""];
+        } else {
+            [lines addObject:[NSString stringWithFormat:@"-%@ In Class: %@", r.methodName, r.className]];
+        }
     }
     [UIPasteboard generalPasteboard].string = [lines componentsJoinedByString:@"\n"];
     [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
