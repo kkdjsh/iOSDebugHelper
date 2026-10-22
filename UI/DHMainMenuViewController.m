@@ -1655,42 +1655,32 @@
 // 长按类名确认 → 选保存位置 → 批量智能适配保存
 - (void)confirmBatchHookClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"批量Hook整个类\n%@（%ld个方法）", cn, (long)methods.count]
-                                                                 message:@"智能适配：BOOL→FALSE，对象→nil，setter/void→空实现，数字→0"
+                                                                 message:@"智能适配：BOOL→FALSE，对象→nil，setter/void→空实现，数字→0；自动归入同名类文件夹"
                                                           preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     [sheet addAction:[UIAlertAction actionWithTitle:@"开始批量Hook" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [weakSelf chooseFolderThenBatchHookClass:cn methods:methods];
+        [weakSelf batchSaveHooksForClass:cn methods:methods];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)chooseFolderThenBatchHookClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods {
-    NSMutableSet *folderSet = [NSMutableSet setWithArray:[DHPatchListVC dhLoadFolders]];
-    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
-        if (h.folderName.length) [folderSet addObject:h.folderName];
-    }
-    NSArray *folders = [[folderSet allObjects] sortedArrayUsingSelector:@selector(compare:)];
-
-    if (folders.count == 0) {
-        [self batchSaveHooksForClass:cn methods:methods folder:nil];
-        return;
-    }
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        [self batchSaveHooksForClass:cn methods:methods folder:nil];
-    }]];
-    for (NSString *fname in folders) {
-        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            [self batchSaveHooksForClass:cn methods:methods folder:fname];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
+// 类文件夹名：类名（中文类名），无翻译则纯类名
+- (NSString *)classFolderNameForClass:(NSString *)cn {
+    NSString *zh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
+    return zh.length ? [NSString stringWithFormat:@"%@（%@）", cn, zh] : cn;
 }
 
-// 批量保存一个类的所有方法（去重），返回新增数
-- (void)batchSaveHooksForClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods folder:(NSString *)folder {
+// 批量保存一个类的所有方法（去重），自动归入「类名（中文）」文件夹
+- (void)batchSaveHooksForClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods {
+    NSString *folder = [self classFolderNameForClass:cn];
+    // 确保类文件夹登记进 folders.plist，补丁管理器根目录可见
+    NSMutableArray *folders = [NSMutableArray arrayWithArray:[DHPatchListVC dhLoadFolders]];
+    if (![folders containsObject:folder]) {
+        [folders addObject:folder];
+        [DHPatchListVC dhSaveFolders:folders];
+    }
+
     NSInteger added = 0, skipped = 0;
     for (DHScannerResult *m in methods) {
         if ([m.methodName isEqualToString:@"(class)"]) continue;
@@ -1698,7 +1688,7 @@
         BOOL exists = NO;
         for (DHHookInfo *old in [DHHookManager sharedManager].savedHooks) {
             if ([old.className isEqualToString:cn] && [old.selectorName isEqualToString:selName] &&
-                ((!old.folderName.length && !folder.length) || [old.folderName isEqualToString:folder ?: @""])) {
+                [old.folderName isEqualToString:folder]) {
                 exists = YES; break;
             }
         }
@@ -1721,8 +1711,7 @@
         [[DHHookManager sharedManager] addHook:h];
         added++;
     }
-    NSString *loc = folder ?: @"根目录";
-    [self showToast:[NSString stringWithFormat:@"批量Hook完成：新增%ld，已存在跳过%ld（%@）", (long)added, (long)skipped, loc]];
+    [self showToast:[NSString stringWithFormat:@"批量Hook完成：新增%ld，跳过%ld｜已归入「%@」", (long)added, (long)skipped, folder]];
 }
 
 - (void)showHookActionSheetForResult:(DHScannerResult *)r {
