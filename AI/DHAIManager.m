@@ -116,7 +116,10 @@ static NSString *const kDHAIConfigKey = @"DH_AIConfig";
     [task resume];
 }
 
-#pragma mark - 翻译缓存
+#pragma mark - 翻译缓存（内存字典 + 串行队列，周期落盘）
+
+static NSMutableDictionary *__memCache;
+static dispatch_queue_t __cacheQueue;
 
 static NSString *TranslationCachePath(void) {
     NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
@@ -125,24 +128,78 @@ static NSString *TranslationCachePath(void) {
     return [dir stringByAppendingPathComponent:@"translations.plist"];
 }
 
-+ (NSMutableDictionary *)loadTranslationCache {
-    NSString *path = TranslationCachePath();
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return [NSMutableDictionary new];
-    return [NSMutableDictionary dictionaryWithContentsOfFile:path] ?: [NSMutableDictionary new];
-}
-
-+ (void)saveTranslationCache:(NSDictionary *)dict {
-    [dict writeToFile:TranslationCachePath() atomically:YES];
++ (dispatch_queue_t)cacheQueue {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        __cacheQueue = dispatch_queue_create("dh.translation.cache", DISPATCH_QUEUE_SERIAL);
+        // 启动只读一次，兼容旧的 XML plist 和新的二进制 plist
+        NSData *data = [NSData dataWithContentsOfFile:TranslationCachePath()];
+        if (data.length) {
+            NSError *e = nil;
+            id obj = [NSPropertyListSerialization propertyListWithData:data
+                                                               options:NSPropertyListMutableContainersAndLeaves
+                                                                format:NULL error:&e];
+            if ([obj isKindOfClass:[NSDictionary class]]) {
+                __memCache = [(NSDictionary *)obj mutableCopy];
+            }
+        }
+        if (!__memCache) __memCache = [NSMutableDictionary new];
+    });
+    return __cacheQueue;
 }
 
 + (NSString *)translationForKey:(NSString *)key {
-    return [self loadTranslationCache][key];
+    if (!key.length) return nil;
+    [self cacheQueue];
+    __block NSString *v = nil;
+    dispatch_sync(__cacheQueue, ^{ v = __memCache[key]; });
+    return v;
 }
 
 + (void)setTranslation:(NSString *)zh forKey:(NSString *)key {
-    NSMutableDictionary *dict = [self loadTranslationCache];
-    dict[key] = zh;
-    [self saveTranslationCache:dict];
+    if (!key.length) return;
+    [self cacheQueue];
+    dispatch_async(__cacheQueue, ^{
+        if (zh) __memCache[key] = zh; else [__memCache removeObjectForKey:key];
+    });
+}
+
+// 二进制写盘：比 writeToFile 的 XML 快得多、文件小得多
++ (void)flushCache {
+    [self cacheQueue];
+    dispatch_async(__cacheQueue, ^{
+        NSError *e = nil;
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:__memCache
+                                                                  format:NSPropertyListBinaryFormat_v1_0
+                                                                 options:0 error:&e];
+        if (data && !e) {
+            [data writeToFile:TranslationCachePath() atomically:YES];
+        }
+    });
+}
+
+// 导入合并：同一 cacheQueue 内合并 + 同步落盘，返回合并后总条数
++ (NSUInteger)mergeTranslations:(NSDictionary<NSString *, NSString *> *)dict {
+    if (!dict.count) return 0;
+    [self cacheQueue];
+    __block NSUInteger total = 0;
+    dispatch_sync(__cacheQueue, ^{
+        [__memCache addEntriesFromDictionary:dict];
+        total = __memCache.count;
+        NSError *e = nil;
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:__memCache
+                                                                  format:NSPropertyListBinaryFormat_v1_0
+                                                                 options:0 error:&e];
+        if (data && !e) [data writeToFile:TranslationCachePath() atomically:YES];
+    });
+    return total;
+}
+
++ (NSDictionary<NSString *, NSString *> *)snapshotTranslations {
+    [self cacheQueue];
+    __block NSDictionary *snap = nil;
+    dispatch_sync(__cacheQueue, ^{ snap = [__memCache copy]; });
+    return snap ?: @{};
 }
 
 @end

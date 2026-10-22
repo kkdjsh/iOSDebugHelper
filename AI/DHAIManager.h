@@ -36,11 +36,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)saveConfig;
 - (void)loadConfig;
 
-#pragma mark - 翻译缓存（持久化到本地 plist）
-/// 读取某个类+方法的中文翻译，key 格式 "className|methodName"
+#pragma mark - 翻译缓存（内存字典 + 串行队列，周期落盘）
+/// 纯内存查表，key 只用方法名
 + (nullable NSString *)translationForKey:(NSString *)key;
-/// 写入翻译缓存并保存
-+ (void)setTranslation:(NSString *)zh forKey:(NSString *)key;
+/// 只写内存，O(1)，不落盘；nil 表示删除
++ (void)setTranslation:(nullable NSString *)zh forKey:(NSString *)key;
+/// 把内存缓存异步落盘为二进制 plist
++ (void)flushCache;
+/// 合并导入字典到内存并同步落盘，返回合并后总条数
++ (NSUInteger)mergeTranslations:(NSDictionary<NSString *, NSString *> *)dict;
+/// 返回内存缓存的不可变快照
++ (NSDictionary<NSString *, NSString *> *)snapshotTranslations;
 
 @end
 
