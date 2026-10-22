@@ -2019,9 +2019,8 @@ static const NSInteger kAIBatchSize = 500;
                 if (![self passFunnelFilter:r]) continue;
                 // 搜索框关键词（类名/方法名/翻译名）
                 if (kw.length) {
-                    // 直接从缓存字典查，不逐个读文件
-                    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", r.className, r.methodName];
-                    NSString *trans = transCache[cacheKey] ?: @"";
+                    // 缓存key只用方法名；优先取对象已回填的翻译，再查内存缓存
+                    NSString *trans = r.dh_translation.length ? r.dh_translation : (transCache[r.methodName] ?: @"");
                     BOOL matchClass = [r.className.lowercaseString containsString:kw];
                     BOOL matchMethod = [r.methodName.lowercaseString containsString:kw];
                     BOOL matchTrans = [trans containsString:searchText];
