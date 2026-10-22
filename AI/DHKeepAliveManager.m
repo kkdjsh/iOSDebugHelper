@@ -49,7 +49,7 @@
 - (void)startSilentLoop {
     @try {
         AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback options:0 error:nil];
+        [session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:nil];
         [session setActive:YES error:nil];
 
         if (self.player && self.player.isPlaying) return;
