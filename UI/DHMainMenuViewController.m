@@ -1582,13 +1582,13 @@ static const NSInteger kAIBatchSize = 500;
     [self pumpBatches];
 }
 
-// 派发：保持最多 aiConcurrency 个在飞，一个回来立刻补一个；取一个空闲通道槽位
+// 派发：保持最多 aiConcurrency 个在飞；空闲通道按1→2→3顺序主动领取下一批，领完即补
 - (void)pumpBatches {
     while (self.aiInflight < self.aiConcurrency && self.aiPendingBatches.count > 0 && self.aiFreeSlots.count > 0) {
         NSDictionary *batch = self.aiPendingBatches.firstObject;
         [self.aiPendingBatches removeObjectAtIndex:0];
-        NSNumber *slot = self.aiFreeSlots.lastObject;
-        [self.aiFreeSlots removeLastObject];
+        NSNumber *slot = self.aiFreeSlots.firstObject;   // 顺序取通道1、2、3，编号与批次对应
+        [self.aiFreeSlots removeObjectAtIndex:0];
         self.aiInflight++;
         [self sendBatch:batch[@"items"] slot:slot.integerValue batchIdx:[batch[@"idx"] integerValue] retryCount:0];
     }
@@ -1629,6 +1629,11 @@ static const NSInteger kAIBatchSize = 500;
 
 // 提交一批给AI；slot为通道号(1..concurrency)，batchIdx为批号；回调在session私有队列先解析，回主线程更新并补派发
 - (void)sendBatch:(NSArray *)slice slot:(NSInteger)slot batchIdx:(NSInteger)batchIdx retryCount:(NSInteger)retryCount {
+    // 仅首次发出提示（重试不重复刷），便于看到每个通道是否领到任务
+    if (retryCount == 0) {
+        [self showProgress:[NSString stringWithFormat:@"[通道%ld] 第%ld批已发出（%ld条）",
+                          (long)slot, (long)batchIdx, (long)slice.count]];
+    }
     NSMutableArray *methodList = [NSMutableArray new];
     for (DHScannerResult *r in slice) {
         [methodList addObject:r.methodName];
