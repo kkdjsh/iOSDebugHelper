@@ -1118,6 +1118,10 @@
 @interface DHScanResultVC : UITableViewController <UISearchBarDelegate>
 @property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
 @property (nonatomic, copy) NSArray *filteredResults;      // 当前显示的扁平结果
+// 全局扫描：按类名分组模式（智能扫描助手=NO扁平方法列表；全局扫描=YES类名下钻）
+@property (nonatomic, assign) BOOL groupByClassMode;
+@property (nonatomic, strong) NSDictionary<NSString *, NSArray<DHScannerResult *> *> *classGroups; // 类名->方法数组
+@property (nonatomic, copy) NSArray<NSString *> *displayClasses; // 分组模式当前可见类名（已搜索过滤）
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
 @property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
@@ -1151,7 +1155,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"扫描结果";
+    self.title = self.groupByClassMode ? @"全局扫描 · 按类" : @"扫描结果";
     _filterSystemClasses = YES;
     [self setupDefaultKeywordFolders];
 
@@ -1199,7 +1203,7 @@
     header.backgroundColor = [UIColor whiteColor];
 
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(4, 6, w - 90, 40)];
-    self.searchBar.placeholder = @"搜索类名/方法名";
+    self.searchBar.placeholder = self.groupByClassMode ? @"搜索类名" : @"搜索类名/方法名";
     self.searchBar.delegate = self;
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
     [header addSubview:self.searchBar];
@@ -1287,6 +1291,39 @@
     self.tableView.tableHeaderView = header;
 
     self.filteredResults = self.allResults;
+
+    if (self.groupByClassMode) {
+        [self buildClassGroups];
+        [self applyClassFilterWithKeyword:@""];
+    }
+}
+
+// 全局扫描：把扁平方法按类名聚合成 {类名: [方法...]}，类名排序
+- (void)buildClassGroups {
+    NSMutableDictionary *groups = [NSMutableDictionary dictionary];
+    for (DHScannerResult *r in self.allResults) {
+        if ([r.methodName isEqualToString:@"(class)"]) continue;
+        NSString *cn = r.className ?: @"";
+        // 与扁平列表一致：过滤系统框架前缀类
+        if ([cn hasPrefix:@"NS"] || [cn hasPrefix:@"UI"] || [cn hasPrefix:@"CF"] ||
+            [cn hasPrefix:@"_"] || [cn hasPrefix:@"__"] || [cn hasPrefix:@"CA"]) continue;
+        NSMutableArray *arr = groups[cn];
+        if (!arr) { arr = [NSMutableArray new]; groups[cn] = arr; }
+        [arr addObject:r];
+    }
+    self.classGroups = groups;
+}
+
+// 分组模式：按类名关键字过滤可见类列表（kw为空=全部类）
+- (void)applyClassFilterWithKeyword:(NSString *)kw {
+    NSString *k = [kw lowercaseString];
+    NSMutableArray *names = [NSMutableArray new];
+    for (NSString *cn in self.classGroups.allKeys) {
+        if (k.length == 0 || [cn.lowercaseString containsString:k]) [names addObject:cn];
+    }
+    [names sortUsingSelector:@selector(caseInsensitiveCompare:)];
+    self.displayClasses = names;
+    [self.tableView reloadData];
 }
 
 - (void)cacheResults:(NSArray *)results {
@@ -1303,11 +1340,40 @@
     return nil;
 }
 
-- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.filteredResults.count; }
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+    if (self.groupByClassMode) return self.displayClasses.count;
+    return self.filteredResults.count;
+}
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"Cell"];
     if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
+
+    // 全局扫描分组模式：一行一个类名
+    if (self.groupByClassMode) {
+        NSString *cn = self.displayClasses[ip.row];
+        NSArray *methods = self.classGroups[cn];
+        // 清掉扁平模式残留的第三行翻译label
+        UILabel *old = [c.contentView viewWithTag:999];
+        if (old) [old removeFromSuperview];
+        c.textLabel.text = cn;
+        c.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+        c.textLabel.textColor = [UIColor labelColor];
+        c.textLabel.numberOfLines = 1;
+        c.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        NSInteger untranslated = 0;
+        for (DHScannerResult *m in methods) {
+            if (!m.dh_translation.length && ![DHAIManager translationForKey:m.methodName].length) untranslated++;
+        }
+        c.detailTextLabel.text = [NSString stringWithFormat:@"%lu 个方法%@",
+                                   (unsigned long)methods.count,
+                                   untranslated > 0 ? [NSString stringWithFormat:@" · 未翻%ld", (long)untranslated] : @""];
+        c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+        c.detailTextLabel.textColor = untranslated > 0 ? [UIColor systemOrangeColor] : [UIColor grayColor];
+        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return c;
+    }
+
     DHScannerResult *r = self.filteredResults[ip.row];
     if ([r.methodName isEqualToString:@"(class)"]) {
         c.textLabel.text = [NSString stringWithFormat:@"@interface %@", r.className];
@@ -1382,6 +1448,19 @@
 
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
+
+    // 全局扫描分组模式：点类名进入该类的方法页（扁平，复用现有全部功能）
+    if (self.groupByClassMode) {
+        NSString *cn = self.displayClasses[ip.row];
+        NSArray *methods = self.classGroups[cn];
+        DHScanResultVC *sub = [DHScanResultVC new];
+        sub.allResults = methods;
+        sub.groupByClassMode = NO;
+        sub.title = cn;
+        [self.navigationController pushViewController:sub animated:YES];
+        return;
+    }
+
     DHScannerResult *r = self.filteredResults[ip.row];
     // 点行 = 切换选中状态（多选）
     if (!_selectedSet) _selectedSet = [NSMutableSet new];
@@ -1514,7 +1593,15 @@ static const NSInteger kAIBatchSize = 500;
     if (!cfg.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; self.isTranslating = NO; return; }
     if (!cfg.apiURL.length) { [self showProgress:@"请先在 AI 配置中心填写 API 地址"]; self.isTranslating = NO; return; }
 
-    NSArray *results = [self.filteredResults copy];   // 不可变快照，隔离外部改动
+    NSArray *results = nil;
+    if (self.groupByClassMode) {
+        // 分组模式：翻译当前可见类的全部方法
+        NSMutableArray *vis = [NSMutableArray new];
+        for (NSString *cn in self.displayClasses) [vis addObjectsFromArray:self.classGroups[cn]];
+        results = [vis copy];
+    } else {
+        results = [self.filteredResults copy];   // 不可变快照，隔离外部改动
+    }
     if (results.count == 0) { [self showProgress:@"当前无结果可翻译"]; self.isTranslating = NO; return; }
 
     // 开启无声音频保活，让翻译在后台继续跑，不被系统挂起
@@ -1741,6 +1828,12 @@ static const NSInteger kAIBatchSize = 500;
 }
 
 - (void)batchCopy {
+    // 分组模式：直接复制当前可见类名列表
+    if (self.groupByClassMode) {
+        [UIPasteboard generalPasteboard].string = [self.displayClasses componentsJoinedByString:@"\n"];
+        [self showToast:[NSString stringWithFormat:@"已复制%lu个类名", (unsigned long)self.displayClasses.count]];
+        return;
+    }
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"复制格式" message:@"先选复制内容，再输入区间" preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"仅方法名（适合发AI翻译）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         self->_copyFormat = 1; [self presentCopyRangeInput];
@@ -2000,6 +2093,13 @@ static const NSInteger kAIBatchSize = 500;
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     [_searchDebounce invalidate];
+
+    // 分组模式：只按类名即时过滤，不走后台扁平遍历
+    if (self.groupByClassMode) {
+        [self applyClassFilterWithKeyword:searchText];
+        return;
+    }
+
     NSString *kw = [searchText lowercaseString];
     NSInteger scope = _searchScope;
     BOOL fSys = _filterSystemClasses;
@@ -2485,14 +2585,14 @@ static const NSInteger kAIBatchSize = 500;
 }
 
 - (void)runSmartScan {
-    [self openScanResults];
+    [self openScanResultsAsGrouped:NO];
 }
 
 - (void)runFullScan {
-    [self openScanResults];
+    [self openScanResultsAsGrouped:YES];
 }
 
-- (void)openScanResults {
+- (void)openScanResultsAsGrouped:(BOOL)grouped {
     // 内存缓存，避免每次都从NSUserDefaults解码大数组
     static NSArray *sMemCache = nil;
     if (!sMemCache) {
@@ -2502,6 +2602,7 @@ static const NSInteger kAIBatchSize = 500;
     if (sMemCache.count > 0) {
         DHScanResultVC *vc = [DHScanResultVC new];
         vc.allResults = sMemCache;
+        vc.groupByClassMode = grouped;
         [self.navigationController pushViewController:vc animated:YES];
         return;
     }
