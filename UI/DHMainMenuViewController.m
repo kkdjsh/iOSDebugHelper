@@ -1293,6 +1293,11 @@
 
     self.filteredResults = self.allResults;
 
+    // 长按方法行：弹出返回值修改菜单（与智能扫描一致）；分组类名行不响应
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleScanLongPress:)];
+    lp.minimumPressDuration = 0.5;
+    [self.tableView addGestureRecognizer:lp];
+
     if (self.groupByClassMode) {
         [self buildClassGroups];
         [self applyClassFilterWithKeyword:@""];
@@ -1330,11 +1335,13 @@
             NSString *classZh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
             if (classZh.length && [classZh containsString:kw]) hit = YES;
         }
-        // 3) 类内方法名命中，记录命中的方法（最多列前3个）
+        // 3) 类内方法名/完整签名命中，记录命中的方法（最多列前3个）
         NSMutableArray *hits = [NSMutableArray new];
-        if (!hit && k.length) {
+        if (k.length) {
             for (DHScannerResult *m in self.classGroups[cn]) {
-                if ([m.methodName.lowercaseString containsString:k]) {
+                BOOL mHit = [m.methodName.lowercaseString containsString:k]
+                         || [m.fullSignature.lowercaseString containsString:k];
+                if (mHit) {
                     [hits addObject:m.methodName];
                     if (hits.count >= 3) break;
                 }
@@ -1611,6 +1618,18 @@
         [_selectedSet addObject:rowKey];
     }
     [t reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
+}
+
+// 长按方法行：弹返回值修改菜单（扁平模式；分组类名行忽略）
+- (void)handleScanLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    if (self.groupByClassMode) return;
+    CGPoint point = [gesture locationInView:self.tableView];
+    NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
+    if (!ip || ip.row >= self.filteredResults.count) return;
+    DHScannerResult *r = self.filteredResults[ip.row];
+    if ([r.methodName isEqualToString:@"(class)"]) return;
+    [self showHookActionSheetForResult:r];
 }
 
 - (void)showHookActionSheetForResult:(DHScannerResult *)r {
