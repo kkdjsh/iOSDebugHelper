@@ -1120,7 +1120,13 @@
 @property (nonatomic, copy) NSArray *filteredResults;      // 当前显示的扁平结果
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
-@property (nonatomic, assign) NSInteger completedSliceCount; // 已完成切片计数（用于周期落盘）
+@property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
+// 并发流水线状态（全部在主线程读写，无需加锁）
+@property (nonatomic, strong) NSMutableArray<NSArray<DHScannerResult *> *> *aiPendingBatches; // 待发批队列
+@property (nonatomic, assign) NSInteger aiInflight;        // 当前在飞批数
+@property (nonatomic, assign) NSInteger aiTotalBatches;      // 总批数（进度用）
+@property (nonatomic, strong) NSMutableArray<DHScannerResult *> *aiMissing; // 漏网待补
+@property (nonatomic, assign) NSInteger aiPass;              // 0=首轮 1=补漏轮
 @end
 @implementation DHScanResultVC {
     NSTimer *_searchDebounce;
@@ -1130,6 +1136,7 @@
     BOOL _filterHasArgs;
     BOOL _filterSetPrefix; // 过滤掉 set 开头的方法
     BOOL _filterVoidOnly; // 仅看 void 方法
+    BOOL _filterUntranslated; // 仅看未翻译（对象无翻译且缓存也查不到）
     NSSet<NSString *> *_activeKeywords; // 闪电词库激活的关键词（普通模式）
     NSArray<NSRegularExpression *> *_activeRegexes; // 闪电词库激活的正则模式
     BOOL _filterClassMethods;
@@ -1489,6 +1496,11 @@
     [self showToast:[NSString stringWithFormat:@"补丁已保存至 %@", loc]];
 }
 
+#pragma mark - AI 并发翻译流水线（并发3，单批500，漏网补一轮）
+
+static const NSInteger kAIConcurrency = 3;
+static const NSInteger kAIBatchSize = 500;
+
 - (void)translateWithAI {
     if (self.isTranslating) return;          // 防重入，避免双击开两条流程
     self.isTranslating = YES;
@@ -1503,66 +1515,94 @@
 
     // 开启无声音频保活，让翻译在后台继续跑，不被系统挂起
     [[DHKeepAliveManager shared] startSilentLoop];
+    [self showProgress:@"正在筛选待翻译条目…"];
 
-    [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
-
-    // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
-    [self processSliceFrom:0 results:results retryCount:0];
-}
-
-// 处理从startIdx开始的一个切片（1000个），查缓存过滤后提交，完成后推进下一轮
-- (void)processSliceFrom:(NSInteger)startIdx results:(NSArray *)results retryCount:(NSInteger)retryCount {
-    NSInteger sliceSize = 1000;
-    NSInteger end = MIN(startIdx + sliceSize, results.count);
-
-    if (startIdx >= results.count) {
-        [DHAIManager flushCache];            // 收尾最后落盘一次
-        self.isTranslating = NO;
-        [self.tableView reloadData];
-        [[DHKeepAliveManager shared] stopSilent];
-        [self showProgress:@"全部翻译完成！"];
-        return;
-    }
-
-    [self showProgress:[NSString stringWithFormat:@"第%ld-%ld个 / 共%ld个，查缓存后提交", (long)(startIdx + 1), (long)end, (long)results.count]];
-
+    // 后台遍历：命中缓存直接回填，未命中收集为待翻列表（不碰模型，只收集引用）
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        @autoreleasepool {                                   // 每片一个释放边界
-            NSMutableArray *slice = [NSMutableArray new];
+        @autoreleasepool {
+            NSMutableArray *need = [NSMutableArray new];
             NSMutableArray *cachedPairs = [NSMutableArray new];   // @[r, cached]
-
-            for (NSInteger i = startIdx; i < end; i++) {
-                DHScannerResult *r = results[i];
+            for (DHScannerResult *r in results) {
                 if ([r.methodName isEqualToString:@"(class)"]) continue;
                 NSString *cached = [DHAIManager translationForKey:r.methodName];   // 纯内存查表
-                if (cached.length > 0) {
-                    [cachedPairs addObject:@[r, cached]];     // 后台不碰模型
-                } else {
-                    [slice addObject:r];
-                }
+                if (cached.length > 0) [cachedPairs addObject:@[r, cached]];
+                else [need addObject:r];
             }
-
             dispatch_async(dispatch_get_main_queue(), ^{
-                // 主线程再回填缓存命中的项
                 for (NSArray *pair in cachedPairs) {
                     DHScannerResult *r = pair[0];
                     r.dh_translation = pair[1];
                 }
-
-                if (slice.count == 0) {
-                    self.completedSliceCount++;
-                    if (self.completedSliceCount % 5 == 0) [DHAIManager flushCache]; // 周期落盘
-                    [self processSliceFrom:end results:results retryCount:0];
-                    return;
-                }
-                [self sendSlice:slice rangeStart:startIdx rangeEnd:end results:results retryCount:retryCount];
+                [self startPipelineWithNeed:need];
             });
         }
     });
 }
 
-// 提交当前切片给AI，返回后存缓存、刷新，再泄压推进下一轮
-- (void)sendSlice:(NSArray *)slice rangeStart:(NSInteger)rangeStart rangeEnd:(NSInteger)rangeEnd results:(NSArray *)results retryCount:(NSInteger)retryCount {
+// 把待翻列表按500切批，初始化并发状态并启动派发
+- (void)startPipelineWithNeed:(NSArray *)need {
+    self.aiPendingBatches = [NSMutableArray new];
+    self.aiInflight = 0;
+    self.aiMissing = [NSMutableArray new];
+    self.aiPass = 0;
+
+    for (NSInteger i = 0; i < need.count; i += kAIBatchSize) {
+        NSInteger end = MIN(i + kAIBatchSize, need.count);
+        [self.aiPendingBatches addObject:[need subarrayWithRange:NSMakeRange(i, end - i)]];
+    }
+    self.aiTotalBatches = self.aiPendingBatches.count;
+
+    if (self.aiTotalBatches == 0) {
+        [DHAIManager flushCache];
+        self.isTranslating = NO;
+        [self.tableView reloadData];
+        [[DHKeepAliveManager shared] stopSilent];
+        [self showProgress:@"全部已是翻译状态，无需翻译"];
+        return;
+    }
+
+    [self showProgress:[NSString stringWithFormat:@"开始并发翻译：%ld条 / %ld批（并发%ld）",
+                       (long)need.count, (long)self.aiTotalBatches, (long)kAIConcurrency]];
+    [self pumpBatches];
+}
+
+// 派发：保持最多 kAIConcurrency 个在飞，一个回来立刻补一个
+- (void)pumpBatches {
+    while (self.aiInflight < kAIConcurrency && self.aiPendingBatches.count > 0) {
+        NSArray *batch = self.aiPendingBatches.firstObject;
+        [self.aiPendingBatches removeObjectAtIndex:0];
+        self.aiInflight++;
+        [self sendBatch:batch retryCount:0];
+    }
+    [self finalizeIfDone];
+}
+
+// 全部在飞结束：首轮有漏网补一轮，否则收尾
+- (void)finalizeIfDone {
+    if (self.aiInflight != 0 || self.aiPendingBatches.count > 0) return;
+
+    if (self.aiPass == 0 && self.aiMissing.count > 0) {
+        NSArray *missing = [self.aiMissing copy];
+        self.aiMissing = [NSMutableArray new];
+        self.aiPass = 1;
+        for (NSInteger i = 0; i < missing.count; i += kAIBatchSize) {
+            NSInteger end = MIN(i + kAIBatchSize, missing.count);
+            [self.aiPendingBatches addObject:[missing subarrayWithRange:NSMakeRange(i, end - i)]];
+        }
+        [self showProgress:[NSString stringWithFormat:@"首轮完成，补翻漏网%ld条", (long)missing.count]];
+        [self pumpBatches];
+        return;
+    }
+
+    [DHAIManager flushCache];
+    self.isTranslating = NO;
+    [self.tableView reloadData];
+    [[DHKeepAliveManager shared] stopSilent];
+    [self showProgress:[NSString stringWithFormat:@"全部完成！剩余漏网%ld条", (long)self.aiMissing.count]];
+}
+
+// 提交一批给AI；回调在session私有队列先解析，回主线程更新模型并补派发
+- (void)sendBatch:(NSArray *)slice retryCount:(NSInteger)retryCount {
     NSMutableArray *methodList = [NSMutableArray new];
     for (DHScannerResult *r in slice) {
         [methodList addObject:r.methodName];
@@ -1593,62 +1633,65 @@
 
     __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
-        // 这个回调在 NSURLSession 私有队列，不在主线程 —— 就在这里解析
         NSInteger maxRetry = 2;
-        void (^retryOnMain)(void) = ^{
+
+        // 失败处理：重试不减 inflight；最终失败整批记入漏网并减 inflight
+        void (^failBatch)(void) = ^{
             dispatch_async(dispatch_get_main_queue(), ^{
-                __strong typeof(weakSelf) strongSelf = weakSelf;
-                if (!strongSelf) return;
+                __strong typeof(weakSelf) s = weakSelf;
+                if (!s) return;
                 if (retryCount < maxRetry) {
                     NSInteger newRetry = retryCount + 1;
-                    [strongSelf showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败，第%ld次重试", (long)(rangeStart + 1), (long)rangeEnd, newRetry]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                        [strongSelf sendSlice:slice rangeStart:rangeStart rangeEnd:rangeEnd results:results retryCount:newRetry];
+                        [s sendBatch:slice retryCount:newRetry];
                     });
                 } else {
-                    [strongSelf showProgress:[NSString stringWithFormat:@"第%ld-%ld个失败已跳过", (long)(rangeStart + 1), (long)rangeEnd]];
-                    [strongSelf processSliceFrom:rangeEnd results:results retryCount:0];
+                    [s.aiMissing addObjectsFromArray:slice];
+                    s.aiInflight--;
+                    [s pumpBatches];
                 }
             });
         };
 
-        if (error) { retryOnMain(); return; }
+        if (error) { failBatch(); return; }
 
         NSError *jsonErr;
         id outerObj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
-        if (jsonErr || ![outerObj isKindOfClass:[NSDictionary class]]) { retryOnMain(); return; }
+        if (jsonErr || ![outerObj isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
 
         id choices = outerObj[@"choices"];
-        if (![choices isKindOfClass:[NSArray class]] || [choices count] == 0) { retryOnMain(); return; }
+        if (![choices isKindOfClass:[NSArray class]] || [choices count] == 0) { failBatch(); return; }
         id firstChoice = choices[0];
-        if (![firstChoice isKindOfClass:[NSDictionary class]]) { retryOnMain(); return; }
+        if (![firstChoice isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
 
         NSString *content = firstChoice[@"message"][@"content"];
-        if (![content isKindOfClass:[NSString class]] || !content.length) { retryOnMain(); return; }
+        if (![content isKindOfClass:[NSString class]] || !content.length) { failBatch(); return; }
 
         NSError *parseErr;
         id transObj = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding]
                                                       options:0 error:&parseErr];
-        if (parseErr || ![transObj isKindOfClass:[NSDictionary class]]) { retryOnMain(); return; }
+        if (parseErr || ![transObj isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
         NSDictionary *transMap = transObj;
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf) return;
+            __strong typeof(weakSelf) s = weakSelf;
+            if (!s) return;
 
             for (DHScannerResult *r in slice) {
                 id zh = transMap[r.methodName];
                 if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
                     r.dh_translation = zh;
                     [DHAIManager setTranslation:zh forKey:r.methodName];   // 只写内存，O(1)
+                } else {
+                    [s.aiMissing addObject:r];   // 本批缺失，留待补漏
                 }
             }
-            [strongSelf.tableView reloadData];
 
-            strongSelf.completedSliceCount++;
-            if (strongSelf.completedSliceCount % 5 == 0) [DHAIManager flushCache];  // 每5轮落盘一次
-
-            [strongSelf processSliceFrom:rangeEnd results:results retryCount:0];
+            s.aiInflight--;
+            s.completedSliceCount++;
+            if (s.completedSliceCount % 5 == 0) [DHAIManager flushCache];  // 每5批落盘一次
+            [s.tableView reloadData];
+            [s pumpBatches];
         });
     }];
     [task resume];
@@ -1730,6 +1773,7 @@
         _filterVoidOnly ? @"✓ 仅看void方法" : @"  仅看void方法",
         _filterHasArgs ? @"✓ 仅看带参方法" : @"  仅看带参方法",
         _filterSetPrefix ? @"✓ 过滤set开头" : @"  过滤set开头",
+        _filterUntranslated ? @"✓ 仅看未翻译" : @"  仅看未翻译",
     ];
     for (NSInteger i = 0; i < titles.count; i++) {
         if (i == 3) { [sheet addAction:[UIAlertAction actionWithTitle:@"———" style:UIAlertActionStyleDestructive handler:nil]]; continue; }
@@ -1740,6 +1784,7 @@
             else if (i == 6) self->_filterVoidOnly = !self->_filterVoidOnly;
             else if (i == 7) self->_filterHasArgs = !self->_filterHasArgs;
             else if (i == 8) self->_filterSetPrefix = !self->_filterSetPrefix;
+            else if (i == 9) self->_filterUntranslated = !self->_filterUntranslated;
             [self filterBtnTapped:btn]; // 刷新菜单
             [self applyFilter];
         }]];
@@ -1859,6 +1904,11 @@
         // 过滤掉 set 开头的方法
         NSString *lower = r.methodName.lowercaseString;
         if ([lower hasPrefix:@"set"]) return NO;
+    }
+    if (_filterUntranslated) {
+        // 对象本身没翻译，且内存缓存也查不到，才算未翻译
+        if (r.dh_translation.length > 0) return NO;
+        if ([DHAIManager translationForKey:r.methodName].length > 0) return NO;
     }
     return YES;
 }
