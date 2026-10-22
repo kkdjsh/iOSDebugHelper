@@ -8,6 +8,7 @@
 #import "DHLogManager.h"
 #import "DHAdScanner.h"
 #import "DHAIManager.h"
+#import "DHKeepAliveManager.h"
 #import "DHHookManager.h"
 #import "DHRuleManager.h"
 #import "DHInterceptRule.h"
@@ -1437,6 +1438,9 @@
     NSArray *results = self.filteredResults;
     if (results.count == 0) { [self showProgress:@"当前无结果可翻译"]; return; }
 
+    // 开启无声音频保活，让翻译在后台继续跑，不被系统挂起
+    [[DHKeepAliveManager shared] startSilentLoop];
+
     [self showProgress:[NSString stringWithFormat:@"开始逐轮翻译，每轮1000个，共约%ld轮", (long)((results.count + 999) / 1000)]];
 
     // 泄压轮次：从第0个开始，每轮只取1000个切片，处理完泄压再进下一轮
@@ -1450,6 +1454,7 @@
 
     if (startIdx >= results.count) {
         [self.tableView reloadData];
+        [[DHKeepAliveManager shared] stopSilent];
         [self showProgress:@"全部翻译完成！"];
         return;
     }
