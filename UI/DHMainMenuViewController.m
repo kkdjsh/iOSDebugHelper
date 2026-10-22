@@ -1679,7 +1679,14 @@
             [lines addObject:[NSString stringWithFormat:@"-%@ In Class: %@", r.methodName, r.className]];
         }
     }
-    [UIPasteboard generalPasteboard].string = [lines componentsJoinedByString:@"\n"];
+    NSString *joined = [lines componentsJoinedByString:@"\n"];
+    if (_copyFormat == 1) {
+        // 仅方法名：自动带上翻译提示词，整段直接贴给AI
+        NSString *prompt = @"你是 iOS 逆向工程助手。输入是 Objective-C 方法名，把每个翻译成简洁中文。严格只返回 JSON 对象，key 必须是原方法名（原样保留所有冒号），value 是中文翻译，不要输出任何其他内容、不要解释。\n\n待翻译方法名：\n";
+        [UIPasteboard generalPasteboard].string = [prompt stringByAppendingString:joined];
+    } else {
+        [UIPasteboard generalPasteboard].string = joined;
+    }
     [self showToast:[NSString stringWithFormat:@"已复制第%ld-%ld条", (long)(start+1), (long)end]];
 }
 
