@@ -197,6 +197,8 @@ static NSString *DHBuildFullSignature(Method m, BOOL isClass) {
                 if (imgPath) {
                     NSString *path = [NSString stringWithUTF8String:imgPath];
                     if ([path containsString:@"/System/Library/"] || [path containsString:@"/usr/lib/"]) continue;
+                    // 跳过插件自身镜像（iOSDebugHelper.dylib），不把自己的类/方法扫进列表
+                    if ([path.lastPathComponent containsString:@"iOSDebugHelper"]) continue;
                 }
                 // 跳过SwiftUI/Vision等系统前缀
                 if ([className hasPrefix:@"SwiftUI."] || [className hasPrefix:@"Vision."] ||

@@ -1128,6 +1128,7 @@
 @property (nonatomic, assign) NSInteger aiTotalBatches;      // 总批数（进度用）
 @property (nonatomic, assign) NSInteger aiDoneBatches;       // 已完成批数
 @property (nonatomic, assign) NSInteger aiConcurrency;       // 本轮并发度（小批量自动降为1）
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *aiFreeSlots; // 空闲通道槽位(1..concurrency)
 @property (nonatomic, strong) NSMutableArray<DHScannerResult *> *aiMissing; // 漏网待补
 @property (nonatomic, assign) NSInteger aiPass;              // 0=首轮 1=补漏轮
 @end
@@ -1571,18 +1572,25 @@ static const NSInteger kAIBatchSize = 500;
     // 动态并发：只有1批（小批量/单个）时降为串行，不强行并发
     self.aiConcurrency = MIN(kAIConcurrency, self.aiTotalBatches);
 
-    [self showProgress:[NSString stringWithFormat:@"开始翻译：%ld条 / %ld批（并发%ld）",
+    // 初始化空闲通道槽位 1..concurrency
+    NSMutableArray *slots = [NSMutableArray new];
+    for (NSInteger s = 1; s <= self.aiConcurrency; s++) [slots addObject:@(s)];
+    self.aiFreeSlots = slots;
+
+    [self showProgress:[NSString stringWithFormat:@"开始翻译：%ld条 / %ld批（并发%ld通道）",
                        (long)need.count, (long)self.aiTotalBatches, (long)self.aiConcurrency]];
     [self pumpBatches];
 }
 
-// 派发：保持最多 aiConcurrency 个在飞，一个回来立刻补一个
+// 派发：保持最多 aiConcurrency 个在飞，一个回来立刻补一个；取一个空闲通道槽位
 - (void)pumpBatches {
-    while (self.aiInflight < self.aiConcurrency && self.aiPendingBatches.count > 0) {
+    while (self.aiInflight < self.aiConcurrency && self.aiPendingBatches.count > 0 && self.aiFreeSlots.count > 0) {
         NSDictionary *batch = self.aiPendingBatches.firstObject;
         [self.aiPendingBatches removeObjectAtIndex:0];
+        NSNumber *slot = self.aiFreeSlots.lastObject;
+        [self.aiFreeSlots removeLastObject];
         self.aiInflight++;
-        [self sendBatch:batch[@"items"] batchIdx:[batch[@"idx"] integerValue] retryCount:0];
+        [self sendBatch:batch[@"items"] slot:slot.integerValue batchIdx:[batch[@"idx"] integerValue] retryCount:0];
     }
     [self finalizeIfDone];
 }
@@ -1603,6 +1611,9 @@ static const NSInteger kAIBatchSize = 500;
                                                 @"idx": @(idx++)}];
         }
         self.aiConcurrency = MIN(kAIConcurrency, self.aiPendingBatches.count);
+        NSMutableArray *slots = [NSMutableArray new];
+        for (NSInteger s = 1; s <= self.aiConcurrency; s++) [slots addObject:@(s)];
+        self.aiFreeSlots = slots;
         [self showProgress:[NSString stringWithFormat:@"首轮完成，补翻漏网%ld条 / %ld批",
                            (long)missing.count, (long)self.aiPendingBatches.count]];
         [self pumpBatches];
@@ -1616,8 +1627,8 @@ static const NSInteger kAIBatchSize = 500;
     [self showProgress:[NSString stringWithFormat:@"全部完成！剩余漏网%ld条", (long)self.aiMissing.count]];
 }
 
-// 提交一批给AI；batchIdx为批号（从1起）；回调在session私有队列先解析，回主线程更新并补派发
-- (void)sendBatch:(NSArray *)slice batchIdx:(NSInteger)batchIdx retryCount:(NSInteger)retryCount {
+// 提交一批给AI；slot为通道号(1..concurrency)，batchIdx为批号；回调在session私有队列先解析，回主线程更新并补派发
+- (void)sendBatch:(NSArray *)slice slot:(NSInteger)slot batchIdx:(NSInteger)batchIdx retryCount:(NSInteger)retryCount {
     NSMutableArray *methodList = [NSMutableArray new];
     for (DHScannerResult *r in slice) {
         [methodList addObject:r.methodName];
@@ -1650,23 +1661,24 @@ static const NSInteger kAIBatchSize = 500;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
         NSInteger maxRetry = 2;
 
-        // 失败处理：重试不减 inflight；最终失败整批记入漏网并减 inflight
+        // 失败处理：重试不归还槽位（仍占该通道）；最终失败整批记漏网、归还槽位、减inflight
         void (^failBatch)(void) = ^{
             dispatch_async(dispatch_get_main_queue(), ^{
                 __strong typeof(weakSelf) s = weakSelf;
                 if (!s) return;
                 if (retryCount < maxRetry) {
                     NSInteger newRetry = retryCount + 1;
-                    [s showProgress:[NSString stringWithFormat:@"第%ld批失败，第%ld次重试（共%ld条）",
-                                    (long)batchIdx, (long)newRetry, (long)slice.count]];
+                    [s showProgress:[NSString stringWithFormat:@"[通道%ld] 第%ld批失败，第%ld次重试（共%ld条）",
+                                    (long)slot, (long)batchIdx, (long)newRetry, (long)slice.count]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                        [s sendBatch:slice batchIdx:batchIdx retryCount:newRetry];
+                        [s sendBatch:slice slot:slot batchIdx:batchIdx retryCount:newRetry];
                     });
                 } else {
                     [s.aiMissing addObjectsFromArray:slice];
+                    [s.aiFreeSlots addObject:@(slot)];   // 归还通道
                     s.aiInflight--;
-                    [s showProgress:[NSString stringWithFormat:@"第%ld批失败，已转补漏（%ld条）",
-                                    (long)batchIdx, (long)slice.count]];
+                    [s showProgress:[NSString stringWithFormat:@"[通道%ld] 第%ld批失败，已转补漏（%ld条）",
+                                    (long)slot, (long)batchIdx, (long)slice.count]];
                     [s pumpBatches];
                 }
             });
@@ -1708,13 +1720,14 @@ static const NSInteger kAIBatchSize = 500;
                 }
             }
 
+            [s.aiFreeSlots addObject:@(slot)];   // 归还通道
             s.aiInflight--;
             s.aiDoneBatches++;
             s.completedSliceCount++;
             if (s.completedSliceCount % 5 == 0) [DHAIManager flushCache];  // 每5批落盘一次
             [s.tableView reloadData];
-            [s showProgress:[NSString stringWithFormat:@"第%ld批完成（%ld/%ld条）｜进度%ld/%ld批",
-                            (long)batchIdx, (long)okCount, (long)slice.count,
+            [s showProgress:[NSString stringWithFormat:@"[通道%ld] 第%ld批完成（%ld/%ld条）｜进度%ld/%ld批",
+                            (long)slot, (long)batchIdx, (long)okCount, (long)slice.count,
                             (long)s.aiDoneBatches, (long)s.aiTotalBatches]];
             [s pumpBatches];
         });
