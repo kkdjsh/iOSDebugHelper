@@ -1326,6 +1326,60 @@
     [self.tableView reloadData];
 }
 
+// 分组模式：翻译当前可见类名（独立小请求，不动方法并发流水线），结果写 class::类名 缓存
+- (void)translateVisibleClassNames {
+    NSMutableArray *need = [NSMutableArray new];
+    for (NSString *cn in self.displayClasses) {
+        if (![DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]].length) [need addObject:cn];
+    }
+    if (need.count == 0) return;
+
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    NSString *apiURL = cfg.apiURL;
+    if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
+
+    NSDictionary *body = @{
+        @"model": cfg.model ?: @"deepseek-chat",
+        @"messages": @[
+            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是 Objective-C 类名数组，把每个类名翻译成简洁中文（说明该类大致职责）。严格返回 JSON 对象，key 是原类名，value 是中文翻译，不要输出任何其他内容。"},
+            @{@"role": @"user", @"content": [need componentsJoinedByString:@"\n"]},
+        ],
+        @"temperature": @0.3,
+        @"response_format": @{@"type": @"json_object"},
+    };
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiURL]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 150;
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
+        if (error) return;
+        NSError *jsonErr;
+        id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
+        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) return;
+        id content = outer[@"choices"][0][@"message"][@"content"];
+        if (![content isKindOfClass:[NSString class]] || !content.length) return;
+        NSError *pErr;
+        id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
+        if (pErr || ![map isKindOfClass:[NSDictionary class]]) return;
+        for (NSString *cn in need) {
+            id zh = map[cn];
+            if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
+                [DHAIManager setTranslation:zh forKey:[@"class::" stringByAppendingString:cn]];
+            }
+        }
+        [DHAIManager flushCache];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.tableView reloadData];
+        });
+    }];
+    [task resume];
+}
+
 - (void)cacheResults:(NSArray *)results {
     NSData *data = [NSKeyedArchiver archivedDataWithRootObject:results];
     [[NSUserDefaults standardUserDefaults] setObject:data forKey:@"DHCachedScanResults"];
@@ -1361,13 +1415,16 @@
         c.textLabel.textColor = [UIColor labelColor];
         c.textLabel.numberOfLines = 1;
         c.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        NSString *classZh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
         NSInteger untranslated = 0;
         for (DHScannerResult *m in methods) {
             if (!m.dh_translation.length && ![DHAIManager translationForKey:m.methodName].length) untranslated++;
         }
-        c.detailTextLabel.text = [NSString stringWithFormat:@"%lu 个方法%@",
-                                   (unsigned long)methods.count,
-                                   untranslated > 0 ? [NSString stringWithFormat:@" · 未翻%ld", (long)untranslated] : @""];
+        NSMutableString *detail = [NSMutableString stringWithString:@""];
+        if (classZh.length) [detail appendFormat:@"%@ ｜ ", classZh];
+        [detail appendFormat:@"%lu 个方法", (unsigned long)methods.count];
+        if (untranslated > 0) [detail appendFormat:@" · 未翻%ld", (long)untranslated];
+        c.detailTextLabel.text = detail;
         c.detailTextLabel.font = [UIFont systemFontOfSize:11];
         c.detailTextLabel.textColor = untranslated > 0 ? [UIColor systemOrangeColor] : [UIColor grayColor];
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -1625,6 +1682,8 @@ static const NSInteger kAIBatchSize = 500;
                     r.dh_translation = pair[1];
                 }
                 [self startPipelineWithNeed:need];
+                // 分组模式顺带翻译可见类名（独立小请求，不影响方法流水线）
+                if (self.groupByClassMode) [self translateVisibleClassNames];
             });
         }
     });
