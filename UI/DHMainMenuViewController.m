@@ -1623,13 +1623,106 @@
 // 长按方法行：弹返回值修改菜单（扁平模式；分组类名行忽略）
 - (void)handleScanLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
-    if (self.groupByClassMode) return;
     CGPoint point = [gesture locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
-    if (!ip || ip.row >= self.filteredResults.count) return;
+    if (!ip) return;
+
+    // 分组一级页：长按类名 → 智能适配批量Hook整个类
+    if (self.groupByClassMode) {
+        if (ip.row >= self.displayClasses.count) return;
+        NSString *cn = self.displayClasses[ip.row];
+        NSArray *methods = self.classGroups[cn];
+        [self confirmBatchHookClass:cn methods:methods];
+        return;
+    }
+
+    if (ip.row >= self.filteredResults.count) return;
     DHScannerResult *r = self.filteredResults[ip.row];
     if ([r.methodName isEqualToString:@"(class)"]) return;
     [self showHookActionSheetForResult:r];
+}
+
+// 智能适配返回值类型：BOOL→FALSE，setter/void→空实现，数字→0，对象/id→nil
+- (DHHookReturnType)adaptiveReturnForMethod:(DHScannerResult *)m {
+    NSString *sel = m.methodName ?: @"";
+    NSString *rt = m.returnType ?: @"";
+    if ([sel hasPrefix:@"set"] || [rt isEqualToString:@"void"]) return DHHookReturnVoid;
+    if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"] || [rt isEqualToString:@"BOOL"]) return DHHookReturnFalse;
+    if ([rt isEqualToString:@"NSInteger"] || [rt isEqualToString:@"int"] || [rt isEqualToString:@"long"] || [rt isEqualToString:@"CGFloat"] || [rt isEqualToString:@"double"] || [rt isEqualToString:@"float"]) return DHHookReturnZero;
+    return DHHookReturnNil;
+}
+
+// 长按类名确认 → 选保存位置 → 批量智能适配保存
+- (void)confirmBatchHookClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"批量Hook整个类\n%@（%ld个方法）", cn, (long)methods.count]
+                                                                 message:@"智能适配：BOOL→FALSE，对象→nil，setter/void→空实现，数字→0"
+                                                          preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"开始批量Hook" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf chooseFolderThenBatchHookClass:cn methods:methods];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)chooseFolderThenBatchHookClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods {
+    NSMutableSet *folderSet = [NSMutableSet setWithArray:[DHPatchListVC dhLoadFolders]];
+    for (DHHookInfo *h in [DHHookManager sharedManager].savedHooks) {
+        if (h.folderName.length) [folderSet addObject:h.folderName];
+    }
+    NSArray *folders = [[folderSet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+
+    if (folders.count == 0) {
+        [self batchSaveHooksForClass:cn methods:methods folder:nil];
+        return;
+    }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择保存位置" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"根目录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self batchSaveHooksForClass:cn methods:methods folder:nil];
+    }]];
+    for (NSString *fname in folders) {
+        [sheet addAction:[UIAlertAction actionWithTitle:fname style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self batchSaveHooksForClass:cn methods:methods folder:fname];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// 批量保存一个类的所有方法（去重），返回新增数
+- (void)batchSaveHooksForClass:(NSString *)cn methods:(NSArray<DHScannerResult *> *)methods folder:(NSString *)folder {
+    NSInteger added = 0, skipped = 0;
+    for (DHScannerResult *m in methods) {
+        if ([m.methodName isEqualToString:@"(class)"]) continue;
+        NSString *selName = m.methodName;
+        BOOL exists = NO;
+        for (DHHookInfo *old in [DHHookManager sharedManager].savedHooks) {
+            if ([old.className isEqualToString:cn] && [old.selectorName isEqualToString:selName] &&
+                ((!old.folderName.length && !folder.length) || [old.folderName isEqualToString:folder ?: @""])) {
+                exists = YES; break;
+            }
+        }
+        if (exists) { skipped++; continue; }
+        DHHookInfo *h = [DHHookInfo new];
+        h.className = cn;
+        h.selectorName = selName;
+        h.isClassMethod = m.isClassMethod;
+        h.returnType = [self adaptiveReturnForMethod:m];
+        h.customValue = nil;
+        h.folderName = folder;
+        // 真实类型推断
+        NSString *realType;
+        if ([selName hasPrefix:@"set"]) realType = @"void";
+        else if ([selName hasPrefix:@"is"] || [selName hasPrefix:@"has"] || [selName hasPrefix:@"should"]) realType = @"BOOL";
+        else if ([selName hasPrefix:@"init"]) realType = @"id";
+        else realType = m.returnType ?: @"id";
+        h.realReturnType = realType;
+        h.argCount = [[selName componentsSeparatedByString:@":"] count] - 1;
+        [[DHHookManager sharedManager] addHook:h];
+        added++;
+    }
+    NSString *loc = folder ?: @"根目录";
+    [self showToast:[NSString stringWithFormat:@"批量Hook完成：新增%ld，已存在跳过%ld（%@）", (long)added, (long)skipped, loc]];
 }
 
 - (void)showHookActionSheetForResult:(DHScannerResult *)r {
