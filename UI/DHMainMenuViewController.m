@@ -977,17 +977,41 @@
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     if (urls.count == 0) return;
     NSURL *url = urls[0];
-    NSError *err;
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfURL:url error:&err];
-    if (err || !dict) {
-        [self showToast:@"导入失败：文件格式错误"];
-        return;
+
+    NSMutableDictionary *merged = [NSMutableDictionary new];
+
+    // 1) 先尝试当 plist 字典（兼容旧备份）
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfURL:url error:nil];
+    if (dict) {
+        [merged addEntriesFromDictionary:dict];
+    } else {
+        // 2) 按导出的 txt 解析：每行 “方法名 → 中文”，跳过 # 注释和空行
+        NSString *raw = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+        if (!raw) { [self showToast:@"导入失败：文件格式错误"]; return; }
+        NSArray *lines = [raw componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        NSCharacterSet *trim = [NSCharacterSet whitespaceCharacterSet];
+        for (NSString *line in lines) {
+            NSString *t = [line stringByTrimmingCharactersInSet:trim];
+            if (t.length == 0 || [t hasPrefix:@"#"]) continue;
+            NSString *sep = nil;
+            for (NSString *candidate in @[@" → ", @"→", @"->", @" = ", @"=", @"："]) {
+                if ([t rangeOfString:candidate].location != NSNotFound) { sep = candidate; break; }
+            }
+            if (!sep) continue;
+            NSRange r = [t rangeOfString:sep];
+            NSString *key = [[t substringToIndex:r.location] stringByTrimmingCharactersInSet:trim];
+            NSString *value = [[t substringFromIndex:r.location + r.length] stringByTrimmingCharactersInSet:trim];
+            if (key.length > 0 && value.length > 0) { merged[key] = value; }
+        }
     }
+
+    if (merged.count == 0) { [self showToast:@"导入失败：文件格式错误"]; return; }
+
     // 合并到本地缓存
     NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
     NSString *cachePath = [dir stringByAppendingPathComponent:@"iOSDebugHelper/translations.plist"];
     NSMutableDictionary *local = [NSMutableDictionary dictionaryWithContentsOfFile:cachePath] ?: [NSMutableDictionary new];
-    [local addEntriesFromDictionary:dict];
+    [local addEntriesFromDictionary:merged];
     [local writeToFile:cachePath atomically:YES];
     [self showToast:[NSString stringWithFormat:@"导入成功，共%lu条翻译", (unsigned long)local.count]];
 }
