@@ -1336,7 +1336,8 @@
     for (NSString *cn in self.displayClasses) {
         if (![DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]].length) [need addObject:cn];
     }
-    if (need.count == 0) return;
+    if (need.count == 0) { [self showProgress:@"类名都已翻译，无需翻译"]; return; }
+    [self showProgress:[NSString stringWithFormat:@"正在翻译 %ld 个类名…", (long)need.count]];
 
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
     NSString *apiURL = cfg.apiURL;
@@ -1361,25 +1362,40 @@
 
     __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
-        if (error) return;
+        if (error) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:[NSString stringWithFormat:@"类名翻译失败：%@", error.localizedDescription ?: @"网络错误"]; });
+            return;
+        }
         NSError *jsonErr;
         id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
-        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) return;
+        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：返回格式错误"]; });
+            return;
+        }
         id contentRaw = outer[@"choices"][0][@"message"][@"content"];
-        if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) return;
+        if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：无返回内容"]; });
+            return;
+        }
         NSString *content = (NSString *)contentRaw;
         NSError *pErr;
         id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
-        if (pErr || ![map isKindOfClass:[NSDictionary class]]) return;
+        if (pErr || ![map isKindOfClass:[NSDictionary class]]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：解析JSON失败"]; });
+            return;
+        }
+        NSInteger ok = 0;
         for (NSString *cn in need) {
             id zh = map[cn];
             if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
                 [DHAIManager setTranslation:zh forKey:[@"class::" stringByAppendingString:cn]];
+                ok++;
             }
         }
         [DHAIManager flushCache];
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf.tableView reloadData];
+            [weakSelf showProgress:[NSString stringWithFormat:@"类名翻译完成：%ld/%ld", (long)ok, (long)need.count]];
         });
     }];
     [task resume];
