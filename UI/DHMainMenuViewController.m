@@ -1326,7 +1326,7 @@
     [self.tableView reloadData];
 }
 
-// 分组模式：翻译当前可见类名（独立小请求，不动方法并发流水线），结果写 class::类名 缓存
+// 分组模式：翻译当前可见类名，分批300、并发2通道，带进度通知，失败重试1次
 - (void)translateVisibleClassNames {
     DHAIConfig *cfg0 = [DHAIManager sharedManager].config;
     if (!cfg0.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; return; }
@@ -1337,8 +1337,51 @@
         if (![DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]].length) [need addObject:cn];
     }
     if (need.count == 0) { [self showProgress:@"类名都已翻译，无需翻译"]; return; }
-    [self showProgress:[NSString stringWithFormat:@"正在翻译 %ld 个类名…", (long)need.count]];
 
+    [[DHKeepAliveManager shared] startSilentLoop];
+    [self showProgress:[NSString stringWithFormat:@"正在翻译 %ld 个类名（并发2 · 每批300）…", (long)need.count]];
+
+    // 按300切批
+    NSMutableArray *batches = [NSMutableArray new];
+    for (NSUInteger i = 0; i < need.count; i += 300) {
+        NSUInteger end = MIN(i + 300, need.count);
+        [batches addObject:[need subarrayWithRange:NSMakeRange(i, end - i)]];
+    }
+
+    dispatch_group_t group = dispatch_group_create();
+    dispatch_semaphore_t sem = dispatch_semaphore_create(2);   // 并发2通道
+    __block NSInteger doneBatches = 0;
+    __block NSInteger okTotal = 0;
+    NSInteger totalBatches = batches.count;
+    __weak typeof(self) weakSelf = self;
+
+    for (NSArray *batch in batches) {
+        dispatch_group_enter(group);
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+            [weakSelf requestClassBatch:batch retry:1 completion:^(NSInteger ok) {
+                okTotal += ok;
+                doneBatches++;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf showProgress:[NSString stringWithFormat:@"类名批%ld/%ld完成（本批成功%ld）｜累计%ld/%ld",
+                                             (long)doneBatches, (long)totalBatches, (long)ok, (long)okTotal, (long)need.count]];
+                });
+                dispatch_semaphore_signal(sem);
+                dispatch_group_leave(group);
+            }];
+        });
+    }
+
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        [DHAIManager flushCache];
+        [weakSelf.tableView reloadData];
+        [weakSelf showProgress:[NSString stringWithFormat:@"类名翻译完成：成功%ld/%ld", (long)okTotal, (long)need.count]];
+        [[DHKeepAliveManager shared] stopSilent];
+    });
+}
+
+// 单批类名翻译请求，失败重试1次，completion回传本批成功数
+- (void)requestClassBatch:(NSArray<NSString *> *)batch retry:(NSInteger)retry completion:(void(^)(NSInteger ok))completion {
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
     NSString *apiURL = cfg.apiURL;
     if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
@@ -1347,7 +1390,7 @@
         @"model": cfg.model ?: @"deepseek-chat",
         @"messages": @[
             @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是 Objective-C 类名数组，把每个类名翻译成简洁中文（说明该类大致职责）。严格返回 JSON 对象，key 是原类名，value 是中文翻译，不要输出任何其他内容。"},
-            @{@"role": @"user", @"content": [need componentsJoinedByString:@"\n"]},
+            @{@"role": @"user", @"content": [batch componentsJoinedByString:@"\n"]},
         ],
         @"temperature": @0.3,
         @"response_format": @{@"type": @"json_object"},
@@ -1360,43 +1403,34 @@
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     req.timeoutInterval = 150;
 
-    __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
-        if (error) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:[NSString stringWithFormat:@"类名翻译失败：%@", error.localizedDescription ?: @"网络错误"]; });
-            return;
-        }
+        void (^failBatch)(void) = ^{
+            if (retry < 2) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                    [self requestClassBatch:batch retry:retry + 1 completion:completion];
+                });
+            } else {
+                completion(0);
+            }
+        };
+        if (error) { failBatch(); return; }
         NSError *jsonErr;
         id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
-        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：返回格式错误"]; });
-            return;
-        }
+        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
         id contentRaw = outer[@"choices"][0][@"message"][@"content"];
-        if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：无返回内容"]; });
-            return;
-        }
-        NSString *content = (NSString *)contentRaw;
+        if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) { failBatch(); return; }
         NSError *pErr;
-        id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
-        if (pErr || ![map isKindOfClass:[NSDictionary class]]) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf showProgress:@"类名翻译失败：解析JSON失败"]; });
-            return;
-        }
+        id map = [NSJSONSerialization JSONObjectWithData:[(NSString *)contentRaw dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
+        if (pErr || ![map isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
         NSInteger ok = 0;
-        for (NSString *cn in need) {
+        for (NSString *cn in batch) {
             id zh = map[cn];
             if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
                 [DHAIManager setTranslation:zh forKey:[@"class::" stringByAppendingString:cn]];
                 ok++;
             }
         }
-        [DHAIManager flushCache];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf.tableView reloadData];
-            [weakSelf showProgress:[NSString stringWithFormat:@"类名翻译完成：%ld/%ld", (long)ok, (long)need.count]];
-        });
+        completion(ok);
     }];
     [task resume];
 }
