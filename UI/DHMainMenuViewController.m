@@ -1328,6 +1328,10 @@
 
 // 分组模式：翻译当前可见类名（独立小请求，不动方法并发流水线），结果写 class::类名 缓存
 - (void)translateVisibleClassNames {
+    DHAIConfig *cfg0 = [DHAIManager sharedManager].config;
+    if (!cfg0.apiKey.length) { [self showProgress:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg0.apiURL.length) { [self showProgress:@"请先在 AI 配置中心填写 API 地址"]; return; }
+
     NSMutableArray *need = [NSMutableArray new];
     for (NSString *cn in self.displayClasses) {
         if (![DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]].length) [need addObject:cn];
@@ -1411,18 +1415,18 @@
         // 清掉扁平模式残留的第三行翻译label
         UILabel *old = [c.contentView viewWithTag:999];
         if (old) [old removeFromSuperview];
-        c.textLabel.text = cn;
+        NSString *classZh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
+        // 主行：类名（中文类名），中文直接跟在类名后，和方法名翻译一样直观
+        c.textLabel.text = classZh.length ? [NSString stringWithFormat:@"%@（%@）", cn, classZh] : cn;
         c.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         c.textLabel.textColor = [UIColor labelColor];
         c.textLabel.numberOfLines = 1;
         c.textLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-        NSString *classZh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
         NSInteger untranslated = 0;
         for (DHScannerResult *m in methods) {
             if (!m.dh_translation.length && ![DHAIManager translationForKey:m.methodName].length) untranslated++;
         }
         NSMutableString *detail = [NSMutableString stringWithString:@""];
-        if (classZh.length) [detail appendFormat:@"%@ ｜ ", classZh];
         [detail appendFormat:@"%lu 个方法", (unsigned long)methods.count];
         if (untranslated > 0) [detail appendFormat:@" · 未翻%ld", (long)untranslated];
         c.detailTextLabel.text = detail;
@@ -1642,7 +1646,24 @@
 static const NSInteger kAIConcurrency = 3;
 static const NSInteger kAIBatchSize = 500;
 
+// AI按钮入口：分组模式先弹菜单选翻译范围，扁平模式直接翻
 - (void)translateWithAI {
+    if (self.groupByClassMode) {
+        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"AI翻译" message:@"选择本次翻译范围" preferredStyle:UIAlertControllerStyleActionSheet];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"类名 + 方法名一起翻译" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self translateWithAIFull];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"仅翻译类名" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self translateVisibleClassNames];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:sheet animated:YES completion:nil];
+        return;
+    }
+    [self translateWithAIFull];
+}
+
+- (void)translateWithAIFull {
     if (self.isTranslating) return;          // 防重入，避免双击开两条流程
     self.isTranslating = YES;
     self.completedSliceCount = 0;
