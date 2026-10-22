@@ -1122,9 +1122,12 @@
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
 @property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
 // 并发流水线状态（全部在主线程读写，无需加锁）
-@property (nonatomic, strong) NSMutableArray<NSArray<DHScannerResult *> *> *aiPendingBatches; // 待发批队列
+// 待发批队列，元素为 @{@"items":NSArray, @"idx":@(批号,从1起)}
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *aiPendingBatches;
 @property (nonatomic, assign) NSInteger aiInflight;        // 当前在飞批数
 @property (nonatomic, assign) NSInteger aiTotalBatches;      // 总批数（进度用）
+@property (nonatomic, assign) NSInteger aiDoneBatches;       // 已完成批数
+@property (nonatomic, assign) NSInteger aiConcurrency;       // 本轮并发度（小批量自动降为1）
 @property (nonatomic, strong) NSMutableArray<DHScannerResult *> *aiMissing; // 漏网待补
 @property (nonatomic, assign) NSInteger aiPass;              // 0=首轮 1=补漏轮
 @end
@@ -1540,15 +1543,19 @@ static const NSInteger kAIBatchSize = 500;
 }
 
 // 把待翻列表按500切批，初始化并发状态并启动派发
+// 把待翻列表按500切批，初始化并发状态并启动派发
 - (void)startPipelineWithNeed:(NSArray *)need {
     self.aiPendingBatches = [NSMutableArray new];
     self.aiInflight = 0;
+    self.aiDoneBatches = 0;
     self.aiMissing = [NSMutableArray new];
     self.aiPass = 0;
 
+    NSInteger idx = 1;
     for (NSInteger i = 0; i < need.count; i += kAIBatchSize) {
         NSInteger end = MIN(i + kAIBatchSize, need.count);
-        [self.aiPendingBatches addObject:[need subarrayWithRange:NSMakeRange(i, end - i)]];
+        [self.aiPendingBatches addObject:@{@"items": [need subarrayWithRange:NSMakeRange(i, end - i)],
+                                          @"idx": @(idx++)}];
     }
     self.aiTotalBatches = self.aiPendingBatches.count;
 
@@ -1561,18 +1568,21 @@ static const NSInteger kAIBatchSize = 500;
         return;
     }
 
-    [self showProgress:[NSString stringWithFormat:@"开始并发翻译：%ld条 / %ld批（并发%ld）",
-                       (long)need.count, (long)self.aiTotalBatches, (long)kAIConcurrency]];
+    // 动态并发：只有1批（小批量/单个）时降为串行，不强行并发
+    self.aiConcurrency = MIN(kAIConcurrency, self.aiTotalBatches);
+
+    [self showProgress:[NSString stringWithFormat:@"开始翻译：%ld条 / %ld批（并发%ld）",
+                       (long)need.count, (long)self.aiTotalBatches, (long)self.aiConcurrency]];
     [self pumpBatches];
 }
 
-// 派发：保持最多 kAIConcurrency 个在飞，一个回来立刻补一个
+// 派发：保持最多 aiConcurrency 个在飞，一个回来立刻补一个
 - (void)pumpBatches {
-    while (self.aiInflight < kAIConcurrency && self.aiPendingBatches.count > 0) {
-        NSArray *batch = self.aiPendingBatches.firstObject;
+    while (self.aiInflight < self.aiConcurrency && self.aiPendingBatches.count > 0) {
+        NSDictionary *batch = self.aiPendingBatches.firstObject;
         [self.aiPendingBatches removeObjectAtIndex:0];
         self.aiInflight++;
-        [self sendBatch:batch retryCount:0];
+        [self sendBatch:batch[@"items"] batchIdx:[batch[@"idx"] integerValue] retryCount:0];
     }
     [self finalizeIfDone];
 }
@@ -1585,11 +1595,16 @@ static const NSInteger kAIBatchSize = 500;
         NSArray *missing = [self.aiMissing copy];
         self.aiMissing = [NSMutableArray new];
         self.aiPass = 1;
+        // 补漏批重新编号，并发同样按批数动态取
+        NSInteger idx = 1;
         for (NSInteger i = 0; i < missing.count; i += kAIBatchSize) {
             NSInteger end = MIN(i + kAIBatchSize, missing.count);
-            [self.aiPendingBatches addObject:[missing subarrayWithRange:NSMakeRange(i, end - i)]];
+            [self.aiPendingBatches addObject:@{@"items": [missing subarrayWithRange:NSMakeRange(i, end - i)],
+                                                @"idx": @(idx++)}];
         }
-        [self showProgress:[NSString stringWithFormat:@"首轮完成，补翻漏网%ld条", (long)missing.count]];
+        self.aiConcurrency = MIN(kAIConcurrency, self.aiPendingBatches.count);
+        [self showProgress:[NSString stringWithFormat:@"首轮完成，补翻漏网%ld条 / %ld批",
+                           (long)missing.count, (long)self.aiPendingBatches.count]];
         [self pumpBatches];
         return;
     }
@@ -1601,8 +1616,8 @@ static const NSInteger kAIBatchSize = 500;
     [self showProgress:[NSString stringWithFormat:@"全部完成！剩余漏网%ld条", (long)self.aiMissing.count]];
 }
 
-// 提交一批给AI；回调在session私有队列先解析，回主线程更新模型并补派发
-- (void)sendBatch:(NSArray *)slice retryCount:(NSInteger)retryCount {
+// 提交一批给AI；batchIdx为批号（从1起）；回调在session私有队列先解析，回主线程更新并补派发
+- (void)sendBatch:(NSArray *)slice batchIdx:(NSInteger)batchIdx retryCount:(NSInteger)retryCount {
     NSMutableArray *methodList = [NSMutableArray new];
     for (DHScannerResult *r in slice) {
         [methodList addObject:r.methodName];
@@ -1629,7 +1644,7 @@ static const NSInteger kAIBatchSize = 500;
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    req.timeoutInterval = 600;
+    req.timeoutInterval = 150;   // 单批超时150s，避免长时间干等卡死流水线
 
     __weak typeof(self) weakSelf = self;
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
@@ -1642,12 +1657,16 @@ static const NSInteger kAIBatchSize = 500;
                 if (!s) return;
                 if (retryCount < maxRetry) {
                     NSInteger newRetry = retryCount + 1;
+                    [s showProgress:[NSString stringWithFormat:@"第%ld批失败，第%ld次重试（共%ld条）",
+                                    (long)batchIdx, (long)newRetry, (long)slice.count]];
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                        [s sendBatch:slice retryCount:newRetry];
+                        [s sendBatch:slice batchIdx:batchIdx retryCount:newRetry];
                     });
                 } else {
                     [s.aiMissing addObjectsFromArray:slice];
                     s.aiInflight--;
+                    [s showProgress:[NSString stringWithFormat:@"第%ld批失败，已转补漏（%ld条）",
+                                    (long)batchIdx, (long)slice.count]];
                     [s pumpBatches];
                 }
             });
@@ -1677,20 +1696,26 @@ static const NSInteger kAIBatchSize = 500;
             __strong typeof(weakSelf) s = weakSelf;
             if (!s) return;
 
+            NSInteger okCount = 0;
             for (DHScannerResult *r in slice) {
                 id zh = transMap[r.methodName];
                 if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
                     r.dh_translation = zh;
                     [DHAIManager setTranslation:zh forKey:r.methodName];   // 只写内存，O(1)
+                    okCount++;
                 } else {
                     [s.aiMissing addObject:r];   // 本批缺失，留待补漏
                 }
             }
 
             s.aiInflight--;
+            s.aiDoneBatches++;
             s.completedSliceCount++;
             if (s.completedSliceCount % 5 == 0) [DHAIManager flushCache];  // 每5批落盘一次
             [s.tableView reloadData];
+            [s showProgress:[NSString stringWithFormat:@"第%ld批完成（%ld/%ld条）｜进度%ld/%ld批",
+                            (long)batchIdx, (long)okCount, (long)slice.count,
+                            (long)s.aiDoneBatches, (long)s.aiTotalBatches]];
             [s pumpBatches];
         });
     }];
