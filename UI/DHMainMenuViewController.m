@@ -1151,6 +1151,7 @@
     BOOL _filterInstanceMethods;
     NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
     NSInteger _copyFormat; // 0=类名+方法名 1=仅方法名 2=仅类名
+    NSMutableDictionary<NSString *, NSArray *> *_classHitMethods; // 分组搜索：类名->命中的方法名
 }
 
 - (void)viewDidLoad {
@@ -1203,7 +1204,7 @@
     header.backgroundColor = [UIColor whiteColor];
 
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(4, 6, w - 90, 40)];
-    self.searchBar.placeholder = self.groupByClassMode ? @"搜索类名" : @"搜索类名/方法名";
+    self.searchBar.placeholder = self.groupByClassMode ? @"搜索类名/类翻译/方法名" : @"搜索类名/方法名";
     self.searchBar.delegate = self;
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
     [header addSubview:self.searchBar];
@@ -1317,9 +1318,33 @@
 // 分组模式：按类名关键字过滤可见类列表（kw为空=全部类）
 - (void)applyClassFilterWithKeyword:(NSString *)kw {
     NSString *k = [kw lowercaseString];
+    if (!_classHitMethods) _classHitMethods = [NSMutableDictionary new];
+    [_classHitMethods removeAllObjects];
     NSMutableArray *names = [NSMutableArray new];
     for (NSString *cn in self.classGroups.allKeys) {
-        if (k.length == 0 || [cn.lowercaseString containsString:k]) [names addObject:cn];
+        BOOL hit = NO;
+        // 1) 类名原文命中
+        if (k.length == 0 || [cn.lowercaseString containsString:k]) hit = YES;
+        // 2) 类名中文翻译命中
+        if (!hit && k.length) {
+            NSString *classZh = [DHAIManager translationForKey:[@"class::" stringByAppendingString:cn]];
+            if (classZh.length && [classZh containsString:kw]) hit = YES;
+        }
+        // 3) 类内方法名命中，记录命中的方法（最多列前3个）
+        NSMutableArray *hits = [NSMutableArray new];
+        if (!hit && k.length) {
+            for (DHScannerResult *m in self.classGroups[cn]) {
+                if ([m.methodName.lowercaseString containsString:k]) {
+                    [hits addObject:m.methodName];
+                    if (hits.count >= 3) break;
+                }
+            }
+            if (hits.count > 0) hit = YES;
+        }
+        if (hit) {
+            [names addObject:cn];
+            if (hits.count > 0) _classHitMethods[cn] = hits;
+        }
     }
     [names sortUsingSelector:@selector(caseInsensitiveCompare:)];
     self.displayClasses = names;
@@ -1479,6 +1504,9 @@
         NSMutableString *detail = [NSMutableString stringWithString:@""];
         [detail appendFormat:@"%lu 个方法", (unsigned long)methods.count];
         if (untranslated > 0) [detail appendFormat:@" · 未翻%ld", (long)untranslated];
+        // 搜方法名命中时，标出命中的方法，便于定位它在哪个类
+        NSArray *hits = _classHitMethods[cn];
+        if (hits.count) [detail appendFormat:@"  ⌖ %@", [hits componentsJoinedByString:@", "]];
         c.detailTextLabel.text = detail;
         c.detailTextLabel.font = [UIFont systemFontOfSize:11];
         c.detailTextLabel.textColor = untranslated > 0 ? [UIColor systemOrangeColor] : [UIColor grayColor];
