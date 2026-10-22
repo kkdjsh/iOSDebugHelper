@@ -1361,8 +1361,9 @@
         NSError *jsonErr;
         id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
         if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) return;
-        id content = outer[@"choices"][0][@"message"][@"content"];
-        if (![content isKindOfClass:[NSString class]] || !content.length) return;
+        id contentRaw = outer[@"choices"][0][@"message"][@"content"];
+        if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) return;
+        NSString *content = (NSString *)contentRaw;
         NSError *pErr;
         id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
         if (pErr || ![map isKindOfClass:[NSDictionary class]]) return;
