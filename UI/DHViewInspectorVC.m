@@ -1,4 +1,5 @@
 #import "DHViewInspectorVC.h"
+#import "DHAIManager.h"
 
 // 列表行：保存视图的非保留指针 + 层级深度
 @interface DHViewRow : NSObject
@@ -90,9 +91,11 @@ static NSMutableArray *gRemovedStack(void) {
 }
 @end
 
-@interface DHViewInspectorVC ()
+@interface DHViewInspectorVC () <UISearchBarDelegate>
 @property (nonatomic, copy) NSString *filterClass; // 二级：只看这个类
 @property (nonatomic, strong) UIWindow *pickWindow;
+@property (nonatomic, copy) NSString *searchText;
+@property (nonatomic, strong) NSArray *displayNames; // 一级过滤后类名
 @end
 
 @implementation DHViewInspectorVC {
@@ -111,8 +114,22 @@ static NSMutableArray *gRemovedStack(void) {
         seg.selectedSegmentIndex = 0;
         [seg addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
         self.navigationItem.titleView = seg;
+
+        // 搜索框
+        UISearchBar *sb = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 52)];
+        sb.placeholder = @"搜索类名 / 中文翻译";
+        sb.delegate = self;
+        self.tableView.tableHeaderView = sb;
+
+        // AI翻译类名按钮
+        UIBarButtonItem *aiBtn = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"sparkles"] style:UIBarButtonItemStylePlain target:self action:@selector(translateVisibleClasses)];
+        self.navigationItem.rightBarButtonItems = @[
+            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTree)],
+            aiBtn,
+        ];
+    } else {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTree)];
     }
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTree)];
 }
 
 - (void)segmentChanged:(UISegmentedControl *)seg {
@@ -173,9 +190,91 @@ static NSMutableArray *gRemovedStack(void) {
             g[cls] = arr;
         }
         _groups = g;
-        _groupNames = [[g allKeys] sortedArrayUsingSelector:@selector(compare:)];
+        NSArray *all = [[g allKeys] sortedArrayUsingSelector:@selector(compare:)];
+        _groupNames = all;
+        [self applySearchFilter];
     }
     [self.tableView reloadData];
+}
+
+// 一级：按搜索词过滤类名（类名原文 + AI中文翻译）
+- (void)applySearchFilter {
+    if (self.filterClass) { self.displayNames = nil; return; }
+    NSString *k = self.searchText.lowercaseString;
+    if (!k.length) { self.displayNames = _groupNames; return; }
+    NSMutableArray *out = [NSMutableArray new];
+    for (NSString *cls in _groupNames) {
+        if ([cls.lowercaseString containsString:k]) { [out addObject:cls]; continue; }
+        NSString *zh = [DHAIManager translationForKey:[@"view::" stringByAppendingString:cls]];
+        if (zh.length && [zh containsString:self.searchText]) [out addObject:cls];
+    }
+    self.displayNames = out;
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    self.searchText = searchText;
+    [self applySearchFilter];
+    [self.tableView reloadData];
+}
+
+// AI翻译当前视图类名（view::类名 缓存，独立于方法/类名翻译）
+- (void)translateVisibleClasses {
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    if (!cfg.apiKey.length) { [self toast:@"请先在 AI 配置中心填写 API Key"]; return; }
+    if (!cfg.apiURL.length) { [self toast:@"请先在 AI 配置中心填写 API 地址"]; return; }
+
+    NSMutableArray *need = [NSMutableArray new];
+    for (NSString *cls in _groupNames) {
+        if (![DHAIManager translationForKey:[@"view::" stringByAppendingString:cls]].length) [need addObject:cls];
+    }
+    if (need.count == 0) { [self toast:@"视图类名都已翻译"]; return; }
+    [self toast:[NSString stringWithFormat:@"正在翻译 %ld 个视图类…", (long)need.count]];
+
+    NSString *apiURL = cfg.apiURL;
+    if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
+    NSDictionary *body = @{
+        @"model": cfg.model ?: @"deepseek-chat",
+        @"messages": @[
+            @{@"role": @"system", @"content": @"你是iOS界面分析助手。输入是UIView子类类名，把它翻译成简洁中文（说明该视图大致用途/是什么界面元素）。严格返回JSON对象，key是原类名，value是中文，不要输出其他内容。"},
+            @{@"role": @"user", @"content": [need componentsJoinedByString:@"\n"]},
+        ],
+        @"temperature": @0.3,
+        @"response_format": @{@"type": @"json_object"},
+    };
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiURL]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 150;
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
+        if (error) { dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf toast:@"视图类翻译失败：网络错误"]; }); return; }
+        NSError *jsonErr;
+        id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
+        if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) { dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf toast:@"视图类翻译失败：返回格式错误"]; }); return; }
+        id contentRaw = outer[@"choices"][0][@"message"][@"content"];
+        if (![contentRaw isKindOfClass:[NSString class]]) { dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf toast:@"视图类翻译失败：无内容"]; }); return; }
+        NSError *pErr;
+        id map = [NSJSONSerialization JSONObjectWithData:[(NSString *)contentRaw dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
+        if (pErr || ![map isKindOfClass:[NSDictionary class]]) { dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf toast:@"视图类翻译失败：解析JSON失败"]; }); return; }
+        NSInteger ok = 0;
+        for (NSString *cls in need) {
+            id zh = map[cls];
+            if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
+                [DHAIManager setTranslation:zh forKey:[@"view::" stringByAppendingString:cls]];
+                ok++;
+            }
+        }
+        [DHAIManager flushCache];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf applySearchFilter];
+            [weakSelf.tableView reloadData];
+            [weakSelf toast:[NSString stringWithFormat:@"视图类翻译完成：%ld/%ld", (long)ok, (long)need.count]];
+        });
+    }];
+    [task resume];
 }
 
 - (void)collectView:(UIView *)v depth:(NSInteger)depth {
@@ -191,7 +290,7 @@ static NSMutableArray *gRemovedStack(void) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (self.filterClass) return _allRows.count;
-    return _groupNames.count;
+    return self.displayNames.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -207,10 +306,11 @@ static NSMutableArray *gRemovedStack(void) {
         cell.detailTextLabel.text = nil;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
-        // 一级：类名 + 实例数
-        NSString *cls = _groupNames[indexPath.row];
+        // 一级：类名（AI中文翻译）+ 实例数
+        NSString *cls = self.displayNames[indexPath.row];
         NSArray *arr = _groups[cls];
-        cell.textLabel.text = cls;
+        NSString *zh = [DHAIManager translationForKey:[@"view::" stringByAppendingString:cls]];
+        cell.textLabel.text = zh.length ? [NSString stringWithFormat:@"%@（%@）", cls, zh] : cls;
         cell.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 个实例", (long)arr.count];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -230,7 +330,7 @@ static NSMutableArray *gRemovedStack(void) {
     }
 
     // 一级类名 → push 二级
-    NSString *cls = _groupNames[indexPath.row];
+    NSString *cls = self.displayNames[indexPath.row];
     DHViewInspectorVC *vc = [DHViewInspectorVC new];
     vc.filterClass = cls;
     [self.navigationController pushViewController:vc animated:YES];
