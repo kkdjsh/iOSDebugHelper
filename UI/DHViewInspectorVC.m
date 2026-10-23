@@ -111,16 +111,11 @@
     while (resp && ![resp isKindOfClass:[UIViewController class]]) resp = resp.nextResponder;
     if (resp) [info appendFormat:@"所属VC：%@\n", NSStringFromClass([resp class])];
 
-    // 按钮绑定事件
-    if ([v isKindOfClass:[UIControl class]]) {
-        UIControl *c = (UIControl *)v;
-        NSMutableArray *actions = [NSMutableArray new];
-        for (id target in c.allTargets) {
-            [c enumerateActionsForTarget:target event:UIControlEventTouchUpInside usingBlock:^(SEL action, BOOL *stop) {
-                [actions addObject:NSStringFromSelector(action)];
-            }];
-        }
-        if (actions.count) [info appendFormat:@"绑定动作：%@", [actions componentsJoinedByString:@", "]];
+    // 按钮公开信息：标题 + 当前事件数
+    if ([v isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)v;
+        NSString *title = [b titleForState:UIControlStateNormal] ?: @"";
+        [info appendFormat:@"按钮标题：%@\n", title];
     }
 
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
