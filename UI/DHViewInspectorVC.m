@@ -298,15 +298,34 @@ static NSMutableArray *gRemovedStack(void) {
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Row"];
 
     if (self.filterClass) {
-        // 二级：该类的具体实例，友好显示位置/尺寸/状态
+        // 二级：该类的具体实例，显示内容文字/位置/状态，右侧缩略图
         DHViewRow *row = _allRows[indexPath.row];
         UIView *v = row.view;
         CGRect f = v.frame;
-        cell.textLabel.text = [NSString stringWithFormat:@"位置(%.0f, %.0f) · 尺寸 %.0f × %.0f", f.origin.x, f.origin.y, f.size.width, f.size.height];
+        NSString *txt = [self dhTextInView:v];
+        if (txt.length) {
+            cell.textLabel.text = [NSString stringWithFormat:@"“%@”", txt];
+        } else {
+            cell.textLabel.text = [NSString stringWithFormat:@"位置(%.0f, %.0f) · 尺寸 %.0f × %.0f", f.origin.x, f.origin.y, f.size.width, f.size.height];
+        }
         cell.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-        cell.detailTextLabel.text = [NSString stringWithFormat:@"hidden:%@  alpha:%.2f", v.hidden ? @"隐藏" : @"显示", v.alpha];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"位置(%.0f,%.0f) %.0f×%.0f · hidden:%@ α:%.2f", f.origin.x, f.origin.y, f.size.width, f.size.height, v.hidden ? @"隐藏" : @"显示", v.alpha];
         cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
+        // 右侧小缩略图
+        UIView *acc = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 72, 48)];
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 4, 60, 40)];
+        iv.contentMode = UIViewContentModeScaleAspectFit;
+        iv.layer.borderColor = [UIColor lightGrayColor].CGColor;
+        iv.layer.borderWidth = 0.5;
+        iv.image = [self dhThumbnailOfView:v];
+        [acc addSubview:iv];
+        UIImageView *arrow = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+        arrow.tintColor = [UIColor systemGray2Color];
+        arrow.frame = CGRectMake(62, 18, 8, 12);
+        [acc addSubview:arrow];
+        cell.accessoryView = acc;
+
         UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPressInstance:)];
         cell.gestureRecognizers = @[lp];
     } else {
@@ -318,6 +337,7 @@ static NSMutableArray *gRemovedStack(void) {
         cell.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 个实例", (long)arr.count];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessoryView = nil;
         cell.gestureRecognizers = nil;
     }
     return cell;
@@ -404,14 +424,17 @@ static UIWindow *gHighlightWin;
 
 // 退出调试界面露出App，用独立浮层把目标视图在屏幕上红框框出
 - (void)highlightView:(UIView *)v {
-    UIWindow *key = [DHViewInspectorVC dhKeyWindow];
-    CGRect r = [v convertRect:v.bounds toView:key];
     NSString *clsName = NSStringFromClass([v class]);
 
     UIViewController *top = self;
     while (top.presentingViewController) top = top.presentingViewController;
     [top dismissViewControllerAnimated:YES completion:^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIWindow *key = [DHViewInspectorVC dhKeyWindow];
+            [v layoutIfNeeded];
+            CGRect r = [v convertRect:v.bounds toView:key];
+            if (CGRectIsEmpty(r)) return;
+
             if (gHighlightWin) gHighlightWin.hidden = YES;
             UIWindow *hw = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
             hw.windowLevel = UIWindowLevelAlert + 3;
@@ -424,11 +447,12 @@ static UIWindow *gHighlightWin;
             box.backgroundColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.15];
             [hw addSubview:box];
 
-            UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(r.origin.x, MAX(r.origin.y - 26, 4), r.size.width, 22)];
+            // 标签贴在框内顶部，避免视觉上把框顶高
+            UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(r.origin.x, r.origin.y, MIN(r.size.width, 220), 20)];
             lb.text = clsName;
-            lb.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+            lb.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
             lb.textColor = [UIColor whiteColor];
-            lb.backgroundColor = [UIColor systemRedColor];
+            lb.backgroundColor = [UIColor colorWithRed:0.85 green:0 blue:0 alpha:0.85];
             lb.textAlignment = NSTextAlignmentCenter;
             [hw addSubview:lb];
 
@@ -475,6 +499,38 @@ static UIWindow *gHighlightWin;
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// 递归提取视图内可见文字（UILabel / UIButton 标题）
+- (NSString *)dhTextInView:(UIView *)v {
+    NSMutableArray *parts = [NSMutableArray new];
+    NSMutableSet *seen = [NSMutableSet new];
+    [self dhCollectText:v into:parts seen:seen];
+    return [parts componentsJoinedByString:@" · "];
+}
+- (void)dhCollectText:(UIView *)v into:(NSMutableArray *)parts seen:(NSMutableSet *)seen {
+    if (!v || v.hidden) return;
+    if ([v isKindOfClass:[UILabel class]]) {
+        NSString *t = [(UILabel *)v text];
+        if (t.length && ![seen containsObject:t]) { [seen addObject:t]; [parts addObject:t]; }
+    } else if ([v isKindOfClass:[UIButton class]]) {
+        NSString *t = [(UIButton *)v titleForState:UIControlStateNormal];
+        if (t.length && ![seen containsObject:t]) { [seen addObject:t]; [parts addObject:t]; }
+    }
+    for (UIView *sub in v.subviews) [self dhCollectText:sub into:parts seen:seen];
+}
+
+// 渲染该视图为小缩略图
+- (UIImage *)dhThumbnailOfView:(UIView *)v {
+    if (!v || v.hidden || CGRectIsEmpty(v.bounds)) return nil;
+    CGSize size = CGSizeMake(60, 40);
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        CGFloat sx = size.width / v.bounds.size.width;
+        CGFloat sy = size.height / v.bounds.size.height;
+        CGContextScaleCTM(ctx.CGContext, sx, sy);
+        [v.layer renderInContext:ctx.CGContext];
+    }];
 }
 
 - (void)toast:(NSString *)msg {
