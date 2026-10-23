@@ -1123,6 +1123,7 @@
 @property (nonatomic, assign) BOOL groupByClassMode;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<DHScannerResult *> *> *classGroups; // 类名->方法数组
 @property (nonatomic, copy) NSArray<NSString *> *displayClasses; // 分组模式当前可见类名（已搜索过滤）
+@property (nonatomic, copy) NSString *targetClassName; // 外部跳转定位高亮的类名
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
 @property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
@@ -1153,6 +1154,18 @@
     NSMutableSet<NSString *> *_selectedSet; // 多选选中的方法 key: className|methodName
     NSInteger _copyFormat; // 0=类名+方法名 1=仅方法名 2=仅类名
     NSMutableDictionary<NSString *, NSArray *> *_classHitMethods; // 分组搜索：类名->命中的方法名
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    // 外部跳转：分组模式滚动到目标类并停留高亮
+    if (self.groupByClassMode && self.targetClassName) {
+        NSInteger idx = [self.displayClasses indexOfObject:self.targetClassName];
+        if (idx != NSNotFound) {
+            NSIndexPath *ip = [NSIndexPath indexPathForRow:idx inSection:0];
+            [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+        }
+    }
 }
 
 - (void)viewDidLoad {
@@ -1519,6 +1532,9 @@
         c.detailTextLabel.font = [UIFont systemFontOfSize:11];
         c.detailTextLabel.textColor = untranslated > 0 ? [UIColor systemOrangeColor] : [UIColor grayColor];
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        // 外部跳转定位：目标类标黄
+        c.backgroundColor = (self.targetClassName && [cn isEqualToString:self.targetClassName])
+            ? [UIColor colorWithRed:1 green:1 blue:0.6 alpha:1] : [UIColor clearColor];
         return c;
     }
 
@@ -2679,6 +2695,24 @@ static const NSInteger kAIBatchSize = 500;
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
     [self setupDefaultKeywordFolders];
     [self buildMenu];
+    [self consumePendingLocate];
+}
+
+// 点选识别跳转：打开全局扫描按类页并定位高亮目标类
+- (void)consumePendingLocate {
+    NSString *pending = [[NSUserDefaults standardUserDefaults] stringForKey:@"DHPendingLocateClass"];
+    if (!pending.length) return;
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingLocateClass"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSData *cache = [[NSUserDefaults standardUserDefaults] dataForKey:@"DHScanCache"];
+        NSArray *results = cache ? [NSKeyedUnarchiver unarchiveObjectWithData:cache] : nil;
+        if (results.count == 0) { [self showToast:@"请先运行一次全局扫描再定位"]; return; }
+        DHScanResultVC *vc = [DHScanResultVC new];
+        vc.allResults = results;
+        vc.groupByClassMode = YES;
+        vc.targetClassName = pending;
+        [self.navigationController pushViewController:vc animated:YES];
+    });
 }
 
 - (void)setupDefaultKeywordFolders {

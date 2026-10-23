@@ -59,6 +59,19 @@ static NSString *dhThumbKey(UIView *v) {
     return [NSString stringWithFormat:@"%@|%@", NSStringFromClass([v class]), NSStringFromCGRect(v.frame)];
 }
 
+// 沿父链找第一个 App 自定义业务类（跳过 _ 私有 / UI / CA / CF 系统层）
+static NSString *dhBusinessClass(UIView *v) {
+    UIView *cur = v;
+    while (cur) {
+        NSString *c = NSStringFromClass([cur class]);
+        if (![c hasPrefix:@"_"] && ![c hasPrefix:@"UI"] && ![c hasPrefix:@"CA"] && ![c hasPrefix:@"CF"]) {
+            return c;
+        }
+        cur = cur.superview;
+    }
+    return NSStringFromClass([v class]);
+}
+
 - (void)showDetailForView:(UIView *)v {
     NSMutableString *info = [NSMutableString string];
     [info appendFormat:@"类名：%@\n", NSStringFromClass([v class])];
@@ -70,6 +83,22 @@ static NSString *dhThumbKey(UIView *v) {
     [info appendFormat:@"父链：%@", [chain componentsJoinedByString:@" → "]];
 
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
+    NSString *biz = dhBusinessClass(v);
+    // 跳视图检视：定位该业务类
+    [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"查看该类（视图检视）：%@", biz] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self.view.window.hidden = YES;
+        DHViewInspectorVC *ivc = [DHViewInspectorVC new];
+        ivc.targetClassName = biz;
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:ivc];
+        UIViewController *top = [DHViewInspectorVC dhKeyWindow].rootViewController;
+        while (top.presentedViewController) top = top.presentedViewController;
+        [top presentViewController:nav animated:YES completion:nil];
+    }]];
+    // 跳全局扫描：通知主菜单打开按类页并定位
+    [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"查看代码（全局扫描）：%@", biz] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self.view.window.hidden = YES;
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": biz}];
+    }]];
     // 移除该视图：真正从父视图删掉，触发自动布局让下方上移
     [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方自动上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         UIView *parent = v.superview;
@@ -108,6 +137,7 @@ static NSString *dhThumbKey(UIView *v) {
 @property (nonatomic, strong) UIWindow *pickWindow;
 @property (nonatomic, copy) NSString *searchText;
 @property (nonatomic, strong) NSArray *displayNames; // 一级过滤后类名
+@property (nonatomic, copy) NSString *targetClassName; // 外部跳转定位高亮的类名
 @end
 
 @implementation DHViewInspectorVC {
@@ -156,6 +186,20 @@ static NSString *dhThumbKey(UIView *v) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self reloadTree];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self locateTargetClass];
+}
+
+// 外部跳转：滚动到目标类并停留高亮
+- (void)locateTargetClass {
+    if (!self.targetClassName || self.filterClass) return;
+    NSInteger idx = [self.displayNames indexOfObject:self.targetClassName];
+    if (idx == NSNotFound) return;
+    NSIndexPath *ip = [NSIndexPath indexPathForRow:idx inSection:0];
+    [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
 }
 
 #pragma mark - keyWindow 获取
@@ -368,6 +412,9 @@ static NSString *dhThumbKey(UIView *v) {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.accessoryView = nil;
         cell.gestureRecognizers = nil;
+        // 外部跳转定位：目标类标黄
+        BOOL isTarget = self.targetClassName && [cls isEqualToString:self.targetClassName];
+        cell.backgroundColor = isTarget ? [UIColor colorWithRed:1 green:1 blue:0.6 alpha:1] : [UIColor clearColor];
     }
     return cell;
 }
