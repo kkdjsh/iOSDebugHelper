@@ -45,8 +45,8 @@
 
 @implementation DHViewInspectorVC {
     NSMutableArray<DHViewRow *> *_allRows;
-    NSDictionary<NSString *, NSArray<DHViewRow *>> *_groups;
-    NSArray<NSString *> *_groupNames;
+    NSDictionary *_groups;
+    NSArray *_groupNames;
 }
 
 - (void)viewDidLoad {
