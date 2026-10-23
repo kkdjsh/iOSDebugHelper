@@ -38,6 +38,14 @@
     [self showDetailForView:hit];
 }
 
+// 被移除视图的可恢复栈：parent(弱) + 原下标 + view(弱)
+static NSMutableArray *gRemovedStack(void) {
+    static NSMutableArray *stack;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ stack = [NSMutableArray new]; });
+    return stack;
+}
+
 - (void)showDetailForView:(UIView *)v {
     NSMutableString *info = [NSMutableString string];
     [info appendFormat:@"类名：%@\n", NSStringFromClass([v class])];
@@ -49,11 +57,33 @@
     [info appendFormat:@"父链：%@", [chain componentsJoinedByString:@" → "]];
 
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"隐藏该视图" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        v.hidden = YES;
+    // 移除该视图：真正从父视图删掉，触发自动布局让下方上移
+    [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方自动上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        UIView *parent = v.superview;
+        NSInteger idx = parent ? [parent.subviews indexOfObject:v] : NSNotFound;
+        if (parent) [gRemovedStack() addObject:@{
+            @"parent": [NSValue valueWithNonretainedObject:parent],
+            @"index": @(idx),
+            @"view": [NSValue valueWithNonretainedObject:v],
+        }];
+        [v removeFromSuperview];
+        [parent setNeedsLayout];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"恢复该视图" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        v.hidden = NO;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"恢复全部已移除视图" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSArray *stack = [gRemovedStack() copy];
+        for (NSDictionary *rec in stack.reverseObjectEnumerator) {
+            UIView *parent = rec[@"parent"].nonretainedObjectValue;
+            UIView *view = rec[@"view"].nonretainedObjectValue;
+            NSInteger idx = [rec[@"index"] integerValue];
+            if (parent && view) {
+                if (idx != NSNotFound && idx <= (NSInteger)parent.subviews.count) {
+                    [parent insertSubview:view atIndex:idx];
+                } else {
+                    [parent addSubview:view];
+                }
+            }
+        }
+        [gRemovedStack() removeAllObjects];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
