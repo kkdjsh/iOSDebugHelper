@@ -315,17 +315,37 @@
 }
 
 - (void)editHook:(DHHookInfo *)h {    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"编辑Hook" message:@"修改返回值类型" preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) wself = self;
+    void (^commit)(DHHookReturnType) = ^(DHHookReturnType type) {
+        h.returnType = type;
+        if (type != DHHookReturnCustomString && type != DHHookReturnCustomNumber) h.customValue = nil;
+        [[DHHookManager sharedManager] saveHooks];
+        [[DHHookManager sharedManager] applyHook:h];
+        [wself.tableView reloadData];
+    };
+    void (^promptCustom)(DHHookReturnType) = ^(DHHookReturnType type) {
+        UIAlertController *inp = [UIAlertController alertControllerWithTitle:type == DHHookReturnCustomString ? @"输入自定义字符串" : @"输入自定义数字" message:nil preferredStyle:UIAlertControllerStyleAlert];
+        [inp addTextFieldWithConfigurationHandler:^(UITextField *f) { f.text = [h.customValue isKindOfClass:[NSString class]] ? h.customValue : @""; f.placeholder = type == DHHookReturnCustomString ? @"字符串 e.g. vip" : @"数字 e.g. 1"; }];
+        [inp addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [inp addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+            NSString *val = inp.textFields[0].text;
+            h.returnType = type;
+            h.customValue = val.length ? val : nil;
+            [[DHHookManager sharedManager] saveHooks];
+            [[DHHookManager sharedManager] applyHook:h];
+            [wself.tableView reloadData];
+        }]];
+        [wself presentViewController:inp animated:YES completion:nil];
+    };
     for (NSString *title in @[@"返回TRUE",@"返回FALSE",@"返回nil",@"拦截/空实现(void)",@"返回0",@"自定义字符串",@"自定义数字"]) {
         [a addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-            if ([title isEqualToString:@"返回TRUE"]) h.returnType = DHHookReturnTrue;
-            else if ([title isEqualToString:@"返回FALSE"]) h.returnType = DHHookReturnFalse;
-            else if ([title isEqualToString:@"返回nil"]) h.returnType = DHHookReturnNil;
-            else if ([title isEqualToString:@"拦截/空实现(void)"]) h.returnType = DHHookReturnVoid;
-            else if ([title isEqualToString:@"返回0"]) h.returnType = DHHookReturnZero;
-            else if ([title isEqualToString:@"自定义字符串"]) h.returnType = DHHookReturnCustomString;
-            else h.returnType = DHHookReturnCustomNumber;
-            [[DHHookManager sharedManager] saveHooks];
-            [self.tableView reloadData];
+            if ([title isEqualToString:@"返回TRUE"]) commit(DHHookReturnTrue);
+            else if ([title isEqualToString:@"返回FALSE"]) commit(DHHookReturnFalse);
+            else if ([title isEqualToString:@"返回nil"]) commit(DHHookReturnNil);
+            else if ([title isEqualToString:@"拦截/空实现(void)"]) commit(DHHookReturnVoid);
+            else if ([title isEqualToString:@"返回0"]) commit(DHHookReturnZero);
+            else if ([title isEqualToString:@"自定义字符串"]) promptCustom(DHHookReturnCustomString);
+            else promptCustom(DHHookReturnCustomNumber);
         }]];
     }
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
