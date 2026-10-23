@@ -1,10 +1,11 @@
 #import "DHViewInspectorVC.h"
 #import "DHAIManager.h"
 
-// 列表行：保存视图的非保留指针 + 层级深度
+// 列表行：保存视图的非保留指针 + 层级深度 + 缓存缩略图
 @interface DHViewRow : NSObject
 @property (nonatomic, weak) UIView *view;
 @property (nonatomic, assign) NSInteger depth;
+@property (nonatomic, strong) UIImage *thumb;
 @end
 @implementation DHViewRow
 @end
@@ -45,6 +46,17 @@ static NSMutableArray *gRemovedStack(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ stack = [NSMutableArray new]; });
     return stack;
+}
+
+// 缩略图永久缓存：key=类名|frame，抓过一次重进自动显示
+static NSMutableDictionary *gThumbCache(void) {
+    static NSMutableDictionary *c;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ c = [NSMutableDictionary new]; });
+    return c;
+}
+static NSString *dhThumbKey(UIView *v) {
+    return [NSString stringWithFormat:@"%@|%@", NSStringFromClass([v class]), NSStringFromCGRect(v.frame)];
 }
 
 - (void)showDetailForView:(UIView *)v {
@@ -322,7 +334,7 @@ static NSMutableArray *gRemovedStack(void) {
         iv.contentMode = UIViewContentModeScaleAspectFit;
         iv.layer.borderColor = [UIColor lightGrayColor].CGColor;
         iv.layer.borderWidth = 0.5;
-        UIImage *thumb = [self dhThumbnailOfView:v];
+        UIImage *thumb = row.thumb ?: gThumbCache()[dhThumbKey(v)] ?: [self dhThumbnailOfView:v];
         if (thumb) {
             iv.image = thumb;
         } else {
@@ -428,6 +440,9 @@ static UIWindow *gHighlightWin;
     [sheet addAction:[UIAlertAction actionWithTitle:@"查看详情" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self showDetailForView:v];
     }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"抓取缩略图（露出App截图并缓存）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self dhCaptureThumb:v];
+    }]];
     // 手动微调位置，每次 10pt，可重复长按继续调
     [sheet addAction:[UIAlertAction actionWithTitle:@"⬆ 上移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:0 dy:-10]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"⬇ 下移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:0 dy:10]; }]];
@@ -457,6 +472,28 @@ static UIWindow *gHighlightWin;
     v.frame = f;
     [v.superview setNeedsLayout];
     [self reloadTree];
+}
+
+// 露出App后对该视图截图，永久缓存，重进列表自动显示
+- (void)dhCaptureThumb:(UIView *)v {
+    NSString *key = dhThumbKey(v);
+    UIViewController *top = self;
+    while (top.presentingViewController) top = top.presentingViewController;
+    [top dismissViewControllerAnimated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            BOOL wasHidden = v.hidden;
+            v.hidden = NO;
+            UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(60, 40)];
+            UIImage *img = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+                CGFloat sx = 60.0 / MAX(v.bounds.size.width, 1);
+                CGFloat sy = 40.0 / MAX(v.bounds.size.height, 1);
+                CGContextScaleCTM(ctx.CGContext, sx, sy);
+                [v drawViewHierarchyInRect:v.bounds afterScreenUpdates:YES];
+            }];
+            v.hidden = wasHidden;
+            if (img) gThumbCache()[key] = img;
+        });
+    }];
 }
 
 // 已移除视图列表：单项恢复 / 恢复全部
