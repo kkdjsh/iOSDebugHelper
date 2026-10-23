@@ -8,9 +8,9 @@
 @implementation DHViewRow
 @end
 
-// 点选识别蒙版：透明覆盖，手指点哪就回调哪个点
+// 点选识别蒙版：透明覆盖，手指点哪命中哪个视图，自带详情/隐藏/恢复
 @interface DHPickMaskVC : UIViewController
-@property (nonatomic, copy) void (^onPick)(CGPoint point);
+@property (nonatomic, weak) UIWindow *bottomWindow;
 @end
 @implementation DHPickMaskVC
 - (void)viewDidLoad {
@@ -28,13 +28,35 @@
     [self.view addSubview:done];
 }
 - (void)close {
-    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
-    if (self.onPick) self.onPick(CGPointMake(-1, -1)); // 哨兵：取消
+    self.view.window.hidden = YES;
 }
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     UITouch *t = touches.anyObject;
     CGPoint p = [t locationInView:self.view];
-    if (self.onPick) self.onPick(p);
+    UIView *hit = [self.bottomWindow hitTest:p withEvent:nil];
+    if (!hit) return;
+    [self showDetailForView:hit];
+}
+
+- (void)showDetailForView:(UIView *)v {
+    NSMutableString *info = [NSMutableString string];
+    [info appendFormat:@"类名：%@\n", NSStringFromClass([v class])];
+    [info appendFormat:@"frame：%@\n", NSStringFromCGRect(v.frame)];
+    [info appendFormat:@"hidden：%@  alpha：%.2f\n", v.hidden ? @"YES" : @"NO", v.alpha];
+    NSMutableArray *chain = [NSMutableArray new];
+    UIView *p = v.superview;
+    while (p) { [chain addObject:NSStringFromClass([p class])]; p = p.superview; }
+    [info appendFormat:@"父链：%@", [chain componentsJoinedByString:@" → "]];
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"隐藏该视图" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        v.hidden = YES;
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"恢复该视图" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        v.hidden = NO;
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 @end
 
@@ -187,26 +209,26 @@
 #pragma mark - 点选识别
 
 - (void)startPick {
+    // 先 dismiss 整个调试模态界面，露出测试App，再由独立蒙版窗口接管点击
+    UIViewController *top = self;
+    while (top.presentingViewController) top = top.presentingViewController;
+    [top dismissViewControllerAnimated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self presentPickMask];
+        });
+    }];
+}
+
+- (void)presentPickMask {
     UIWindow *bottom = [DHViewInspectorVC dhKeyWindow];
-    UIWindow *debugWin = self.view.window;
     UIWindow *mask = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     mask.windowLevel = UIWindowLevelAlert + 2;
     mask.backgroundColor = [UIColor clearColor];
     DHPickMaskVC *pvc = [DHPickMaskVC new];
-    __weak typeof(self) weakSelf = self;
-    pvc.onPick = ^(CGPoint p) {
-        mask.hidden = YES;
-        weakSelf.pickWindow = nil;
-        debugWin.hidden = NO; // 恢复调试界面
-        if (p.x < 0) return; // 退出点选
-        UIView *hit = [bottom hitTest:p withEvent:nil];
-        if (hit) [weakSelf showDetailForView:hit];
-    };
+    pvc.bottomWindow = bottom;
     mask.rootViewController = pvc;
     mask.hidden = NO;
     self.pickWindow = mask;
-    // 先隐藏调试界面，露出底层测试App，再由蒙版接管点击
-    debugWin.hidden = YES;
 }
 
 #pragma mark - 详情 / 隐藏恢复
