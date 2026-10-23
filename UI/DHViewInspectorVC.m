@@ -316,13 +316,25 @@ static NSMutableArray *gRemovedStack(void) {
         cell.detailTextLabel.text = [NSString stringWithFormat:@"位置(%.0f,%.0f) %.0f×%.0f · hidden:%@ α:%.2f", f.origin.x, f.origin.y, f.size.width, f.size.height, v.hidden ? @"隐藏" : @"显示", v.alpha];
         cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
 
-        // 右侧小缩略图
+        // 右侧小缩略图；抓不到内容时显示灰色占位+类名缩写
         UIView *acc = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 72, 48)];
         UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 4, 60, 40)];
         iv.contentMode = UIViewContentModeScaleAspectFit;
         iv.layer.borderColor = [UIColor lightGrayColor].CGColor;
         iv.layer.borderWidth = 0.5;
-        iv.image = [self dhThumbnailOfView:v];
+        UIImage *thumb = [self dhThumbnailOfView:v];
+        if (thumb) {
+            iv.image = thumb;
+        } else {
+            iv.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1];
+            UILabel *ph = [[UILabel alloc] initWithFrame:iv.bounds];
+            NSString *cls = NSStringFromClass([v class]);
+            ph.text = cls.length > 3 ? [cls substringFromIndex:cls.length - 3] : cls;
+            ph.font = [UIFont systemFontOfSize:9];
+            ph.textColor = [UIColor systemGrayColor];
+            ph.textAlignment = NSTextAlignmentCenter;
+            [iv addSubview:ph];
+        }
         [acc addSubview:iv];
         UIImageView *arrow = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
         arrow.tintColor = [UIColor systemGray2Color];
@@ -635,7 +647,10 @@ static UIWindow *gHighlightWin;
         CGFloat sx = size.width / v.bounds.size.width;
         CGFloat sy = size.height / v.bounds.size.height;
         CGContextScaleCTM(ctx.CGContext, sx, sy);
-        [v.layer renderInContext:ctx.CGContext];
+        // 优先用层级合成快照（能抓到真实渲染内容），失败再退回图层绘制
+        if (![v drawViewHierarchyInRect:v.bounds afterScreenUpdates:YES]) {
+            [v.layer renderInContext:ctx.CGContext];
+        }
     }];
     v.hidden = wasHidden;
     return img;
