@@ -121,11 +121,13 @@ static NSMutableArray *gRemovedStack(void) {
         sb.delegate = self;
         self.tableView.tableHeaderView = sb;
 
-        // AI翻译类名按钮
+        // AI翻译类名按钮 + 已移除视图入口
         UIBarButtonItem *aiBtn = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"sparkles"] style:UIBarButtonItemStylePlain target:self action:@selector(translateVisibleClasses)];
+        UIBarButtonItem *removedBtn = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"trash"] style:UIBarButtonItemStylePlain target:self action:@selector(showRemovedList)];
         self.navigationItem.rightBarButtonItems = @[
             [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTree)],
             aiBtn,
+            removedBtn,
         ];
     } else {
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTree)];
@@ -403,13 +405,22 @@ static UIWindow *gHighlightWin;
     if (!row.view) { [self toast:@"视图已释放"]; return; }
     UIView *v = row.view;
 
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图操作" message:NSStringFromClass([v class]) preferredStyle:UIAlertControllerStyleActionSheet];
+    NSString *cls = NSStringFromClass([v class]);
+    NSString *zh = [DHAIManager translationForKey:[@"view::" stringByAppendingString:cls]];
+    NSString *msg = zh.length ? [NSString stringWithFormat:@"%@（%@）", cls, zh] : cls;
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图操作" message:msg preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"高亮显示该UI（屏幕框出）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self highlightView:v];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"查看详情" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self showDetailForView:v];
     }]];
+    // 手动微调位置，每次 10pt，可重复长按继续调
+    [sheet addAction:[UIAlertAction actionWithTitle:@"⬆ 上移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:0 dy:-10]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"⬇ 下移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:0 dy:10]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"⬅ 左移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:-10 dy:0]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"➡ 右移 10" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self dhMoveView:v dx:10 dy:0]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方兄弟上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         UIView *parent = v.superview;
         CGFloat topY = v.frame.origin.y, h = v.frame.size.height;
@@ -425,6 +436,57 @@ static UIWindow *gHighlightWin;
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)dhMoveView:(UIView *)v dx:(CGFloat)dx dy:(CGFloat)dy {
+    CGRect f = v.frame;
+    f.origin.x += dx;
+    f.origin.y += dy;
+    v.frame = f;
+    [v.superview setNeedsLayout];
+    [self reloadTree];
+}
+
+// 已移除视图列表：单项恢复 / 恢复全部
+- (void)showRemovedList {
+    NSArray *stack = [gRemovedStack() copy];
+    NSMutableArray *alive = [NSMutableArray new];
+    for (NSDictionary *rec in stack) {
+        UIView *view = [(NSValue *)rec[@"view"] nonretainedObjectValue];
+        if (view) [alive addObject:rec];
+    }
+    if (alive.count == 0) { [self toast:@"没有已移除的视图"]; return; }
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"已移除视图" message:[NSString stringWithFormat:@"共 %ld 项", (long)alive.count] preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary *rec in alive) {
+        UIView *view = [(NSValue *)rec[@"view"] nonretainedObjectValue];
+        NSString *label = NSStringFromClass([view class]);
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"恢复 %@", label] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self dhRestoreRecord:rec];
+            [self reloadTree];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"恢复全部" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        for (NSDictionary *rec in alive.reverseObjectEnumerator) [self dhRestoreRecord:rec];
+        [gRemovedStack() removeAllObjects];
+        [self reloadTree];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)dhRestoreRecord:(NSDictionary *)rec {
+    UIView *parent = [(NSValue *)rec[@"parent"] nonretainedObjectValue];
+    UIView *view = [(NSValue *)rec[@"view"] nonretainedObjectValue];
+    NSInteger idx = [rec[@"index"] integerValue];
+    if (!parent || !view) return;
+    if (idx != NSNotFound && idx <= (NSInteger)parent.subviews.count) {
+        [parent insertSubview:view atIndex:idx];
+    } else {
+        [parent addSubview:view];
+    }
+    [gRemovedStack() removeObject:rec];
+    [parent setNeedsLayout];
 }
 
 // 退出调试界面露出App，用独立浮层把目标视图在屏幕上红框框出
@@ -565,14 +627,18 @@ static UIWindow *gHighlightWin;
 // 渲染该视图为小缩略图
 - (UIImage *)dhThumbnailOfView:(UIView *)v {
     if (!v || CGRectIsEmpty(v.bounds)) return nil;
+    BOOL wasHidden = v.hidden;
+    v.hidden = NO; // 隐藏视图临时显示以便渲染缩略图
     CGSize size = CGSizeMake(60, 40);
     UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:size];
-    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+    UIImage *img = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
         CGFloat sx = size.width / v.bounds.size.width;
         CGFloat sy = size.height / v.bounds.size.height;
         CGContextScaleCTM(ctx.CGContext, sx, sy);
         [v.layer renderInContext:ctx.CGContext];
     }];
+    v.hidden = wasHidden;
+    return img;
 }
 
 - (void)toast:(NSString *)msg {
