@@ -303,12 +303,14 @@ static NSMutableArray *gRemovedStack(void) {
         UIView *v = row.view;
         CGRect f = v.frame;
         NSString *txt = [self dhTextInView:v];
+        NSString *prefix = v.hidden ? @"[已隐藏] " : @"";
         if (txt.length) {
-            cell.textLabel.text = [NSString stringWithFormat:@"“%@”", txt];
+            cell.textLabel.text = [NSString stringWithFormat:@"%@“%@”", prefix, txt];
         } else {
-            cell.textLabel.text = [NSString stringWithFormat:@"位置(%.0f, %.0f) · 尺寸 %.0f × %.0f", f.origin.x, f.origin.y, f.size.width, f.size.height];
+            cell.textLabel.text = [NSString stringWithFormat:@"%@位置(%.0f, %.0f) · 尺寸 %.0f × %.0f", prefix, f.origin.x, f.origin.y, f.size.width, f.size.height];
         }
         cell.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        cell.textLabel.textColor = v.hidden ? [UIColor systemGrayColor] : [UIColor labelColor];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"位置(%.0f,%.0f) %.0f×%.0f · hidden:%@ α:%.2f", f.origin.x, f.origin.y, f.size.width, f.size.height, v.hidden ? @"隐藏" : @"显示", v.alpha];
         cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
 
@@ -335,6 +337,7 @@ static NSMutableArray *gRemovedStack(void) {
         NSString *zh = [DHAIManager translationForKey:[@"view::" stringByAppendingString:cls]];
         cell.textLabel.text = zh.length ? [NSString stringWithFormat:@"%@（%@）", cls, zh] : cls;
         cell.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+        cell.textLabel.textColor = [UIColor labelColor];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 个实例", (long)arr.count];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.accessoryView = nil;
@@ -407,8 +410,9 @@ static UIWindow *gHighlightWin;
     [sheet addAction:[UIAlertAction actionWithTitle:@"查看详情" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         [self showDetailForView:v];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方兄弟上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         UIView *parent = v.superview;
+        CGFloat topY = v.frame.origin.y, h = v.frame.size.height;
         NSInteger idx = parent ? [parent.subviews indexOfObject:v] : NSNotFound;
         if (parent) [gRemovedStack() addObject:@{
             @"parent": [NSValue valueWithNonretainedObject:parent],
@@ -416,6 +420,7 @@ static UIWindow *gHighlightWin;
             @"view": [NSValue valueWithNonretainedObject:v],
         }];
         [v removeFromSuperview];
+        [self dhShiftSiblingsUpIn:parent fromY:topY height:h];
         [self reloadTree];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -472,6 +477,23 @@ static UIWindow *gHighlightWin;
     [info appendFormat:@"bounds：%@\n", NSStringFromCGRect(v.bounds)];
     [info appendFormat:@"hidden：%@  alpha：%.2f\n", v.hidden ? @"YES" : @"NO", v.alpha];
 
+    // 代码标识：cell复用标识 / 按钮监听方法名
+    if ([v isKindOfClass:[UITableViewCell class]]) {
+        NSString *rid = [(UITableViewCell *)v reuseIdentifier];
+        if (rid.length) [info appendFormat:@"复用标识：%@\n", rid];
+    }
+    if ([v isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)v;
+        NSString *title = [b titleForState:UIControlStateNormal] ?: @"";
+        [info appendFormat:@"按钮标题：%@\n", title];
+        NSMutableArray *selectors = [NSMutableArray new];
+        for (id t in b.allTargets) {
+            NSArray *acts = [b actionsForTarget:t forControlEvent:UIControlEventTouchUpInside];
+            for (NSString *s in acts) { if (s.length && ![selectors containsObject:s]) [selectors addObject:s]; }
+        }
+        if (selectors.count) [info appendFormat:@"点击方法：%@\n", [selectors componentsJoinedByString:@", "]];
+    }
+
     NSMutableArray *chain = [NSMutableArray new];
     UIView *p = v.superview;
     while (p) { [chain addObject:NSStringFromClass([p class])]; p = p.superview; }
@@ -481,15 +503,22 @@ static UIWindow *gHighlightWin;
     while (resp && ![resp isKindOfClass:[UIViewController class]]) resp = resp.nextResponder;
     if (resp) [info appendFormat:@"所属VC：%@\n", NSStringFromClass([resp class])];
 
-    if ([v isKindOfClass:[UIButton class]]) {
-        UIButton *b = (UIButton *)v;
-        NSString *title = [b titleForState:UIControlStateNormal] ?: @"";
-        [info appendFormat:@"按钮标题：%@\n", title];
-    }
-
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
-    [sheet addAction:[UIAlertAction actionWithTitle:@"隐藏该视图" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方兄弟上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        UIView *parent = v.superview;
+        CGFloat topY = v.frame.origin.y, h = v.frame.size.height;
+        NSInteger idx = parent ? [parent.subviews indexOfObject:v] : NSNotFound;
+        if (parent) [gRemovedStack() addObject:@{
+            @"parent": [NSValue valueWithNonretainedObject:parent],
+            @"index": @(idx),
+            @"view": [NSValue valueWithNonretainedObject:v],
+        }];
+        [v removeFromSuperview];
+        [weakSelf dhShiftSiblingsUpIn:parent fromY:topY height:h];
+        [weakSelf reloadTree];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"仅隐藏（保留占位）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         v.hidden = YES;
         [weakSelf reloadTree];
     }]];
@@ -501,6 +530,19 @@ static UIWindow *gHighlightWin;
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+// 移除后把父视图中位于其下方的兄弟整体上移一个被移除高度
+- (void)dhShiftSiblingsUpIn:(UIView *)parent fromY:(CGFloat)topY height:(CGFloat)h {
+    if (!parent || h <= 0) return;
+    for (UIView *sib in parent.subviews) {
+        if (sib.frame.origin.y >= topY - 0.5) {
+            CGRect f = sib.frame;
+            f.origin.y -= h;
+            sib.frame = f;
+        }
+    }
+    [parent setNeedsLayout];
+}
+
 // 递归提取视图内可见文字（UILabel / UIButton 标题）
 - (NSString *)dhTextInView:(UIView *)v {
     NSMutableArray *parts = [NSMutableArray new];
@@ -509,7 +551,7 @@ static UIWindow *gHighlightWin;
     return [parts componentsJoinedByString:@" · "];
 }
 - (void)dhCollectText:(UIView *)v into:(NSMutableArray *)parts seen:(NSMutableSet *)seen {
-    if (!v || v.hidden) return;
+    if (!v) return;
     if ([v isKindOfClass:[UILabel class]]) {
         NSString *t = [(UILabel *)v text];
         if (t.length && ![seen containsObject:t]) { [seen addObject:t]; [parts addObject:t]; }
@@ -522,7 +564,7 @@ static UIWindow *gHighlightWin;
 
 // 渲染该视图为小缩略图
 - (UIImage *)dhThumbnailOfView:(UIView *)v {
-    if (!v || v.hidden || CGRectIsEmpty(v.bounds)) return nil;
+    if (!v || CGRectIsEmpty(v.bounds)) return nil;
     CGSize size = CGSizeMake(60, 40);
     UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:size];
     return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
