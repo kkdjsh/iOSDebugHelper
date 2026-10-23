@@ -24,6 +24,7 @@ iOSDebugHelper_FILES = Tweak.x \
     AI/DHKeepAliveManager.m \
     UI/DHButtonManager.m \
     UI/DHMainMenuViewController.m \
+    UI/DHViewInspectorVC.m \
     UI/DHKeywordVC.m \
     UI/DHBuiltinKeywords.m
 

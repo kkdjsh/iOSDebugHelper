@@ -8,6 +8,7 @@
 #import "DHLogManager.h"
 #import "DHAdScanner.h"
 #import "DHAIManager.h"
+#import "DHViewInspectorVC.h"
 #import "DHKeepAliveManager.h"
 #import "DHHookManager.h"
 #import "DHRuleManager.h"
@@ -2767,6 +2768,7 @@ static const NSInteger kAIBatchSize = 500;
                 @{@"title": @"AI 配置中心",   @"icon": @"cpu", @"action": @"openAIConfig"},
                 @{@"title": @"网络规则",     @"icon": @"network", @"action": @"openNetworkRules"},
                 @{@"title": @"全局扫描",     @"icon": @"magnifyingglass.circle.fill", @"action": @"openGlobalScan"},
+                @{@"title": @"视图检视",     @"icon": @"eye", @"action": @"openViewInspector"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
                 @{@"title": @"动态监控",     @"icon": @"waveform", @"action": @"openMonitor"},
             ],
@@ -2829,6 +2831,9 @@ static const NSInteger kAIBatchSize = 500;
         [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openGlobalScan"]) {
         [self runFullScan];
+    } else if ([action isEqualToString:@"openViewInspector"]) {
+        DHViewInspectorVC *vc = [DHViewInspectorVC new];
+        [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openLogs"]) {
         [self showLogs];
     } else if ([action isEqualToString:@"openMonitor"]) {
