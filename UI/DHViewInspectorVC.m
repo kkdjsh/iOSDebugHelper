@@ -208,18 +208,11 @@
 
 #pragma mark - 点选识别
 
-- (void)startPick {
-    // 先 dismiss 整个调试模态界面，露出测试App，再由独立蒙版窗口接管点击
-    UIViewController *top = self;
-    while (top.presentingViewController) top = top.presentingViewController;
-    [top dismissViewControllerAnimated:YES completion:^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self presentPickMask];
-        });
-    }];
-}
+// 静态兜住蒙版窗口，避免 dismiss 调试界面后被释放
+static UIWindow *gPickMaskWindow;
 
-- (void)presentPickMask {
+- (void)startPick {
+    // dismiss 前先把蒙版窗口建好（独立于调试VC），dismiss 露出App后再显示
     UIWindow *bottom = [DHViewInspectorVC dhKeyWindow];
     UIWindow *mask = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     mask.windowLevel = UIWindowLevelAlert + 2;
@@ -227,8 +220,15 @@
     DHPickMaskVC *pvc = [DHPickMaskVC new];
     pvc.bottomWindow = bottom;
     mask.rootViewController = pvc;
-    mask.hidden = NO;
-    self.pickWindow = mask;
+    gPickMaskWindow = mask;
+
+    UIViewController *top = self;
+    while (top.presentingViewController) top = top.presentingViewController;
+    [top dismissViewControllerAnimated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            mask.hidden = NO;
+        });
+    }];
 }
 
 #pragma mark - 详情 / 隐藏恢复
