@@ -188,6 +188,7 @@
 
 - (void)startPick {
     UIWindow *bottom = [DHViewInspectorVC dhKeyWindow];
+    UIWindow *debugWin = self.view.window;
     UIWindow *mask = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     mask.windowLevel = UIWindowLevelAlert + 2;
     mask.backgroundColor = [UIColor clearColor];
@@ -196,14 +197,16 @@
     pvc.onPick = ^(CGPoint p) {
         mask.hidden = YES;
         weakSelf.pickWindow = nil;
-        if (p.x < 0) return; // 取消
+        debugWin.hidden = NO; // 恢复调试界面
+        if (p.x < 0) return; // 退出点选
         UIView *hit = [bottom hitTest:p withEvent:nil];
         if (hit) [weakSelf showDetailForView:hit];
     };
     mask.rootViewController = pvc;
     mask.hidden = NO;
     self.pickWindow = mask;
-    [self toast:@"点按屏幕任意板块进行识别"];
+    // 先隐藏调试界面，露出底层测试App，再由蒙版接管点击
+    debugWin.hidden = YES;
 }
 
 #pragma mark - 详情 / 隐藏恢复
