@@ -72,8 +72,8 @@ static NSMutableArray *gRemovedStack(void) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"恢复全部已移除视图" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         NSArray *stack = [gRemovedStack() copy];
         for (NSDictionary *rec in stack.reverseObjectEnumerator) {
-            UIView *parent = rec[@"parent"].nonretainedObjectValue;
-            UIView *view = rec[@"view"].nonretainedObjectValue;
+            UIView *parent = [(NSValue *)rec[@"parent"] nonretainedObjectValue];
+            UIView *view = [(NSValue *)rec[@"view"] nonretainedObjectValue];
             NSInteger idx = [rec[@"index"] integerValue];
             if (parent && view) {
                 if (idx != NSNotFound && idx <= (NSInteger)parent.subviews.count) {
