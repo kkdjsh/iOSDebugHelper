@@ -298,13 +298,17 @@ static NSMutableArray *gRemovedStack(void) {
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Row"];
 
     if (self.filterClass) {
-        // 二级：该类的具体实例，显示 frame/深度
+        // 二级：该类的具体实例，友好显示位置/尺寸/状态
         DHViewRow *row = _allRows[indexPath.row];
-        CGRect f = row.view.frame;
-        cell.textLabel.text = [NSString stringWithFormat:@"↳ %.0f,%.0f  %.0fx%.0f", f.origin.x, f.origin.y, f.size.width, f.size.height];
-        cell.textLabel.font = [UIFont systemFontOfSize:12];
-        cell.detailTextLabel.text = nil;
+        UIView *v = row.view;
+        CGRect f = v.frame;
+        cell.textLabel.text = [NSString stringWithFormat:@"位置(%.0f, %.0f) · 尺寸 %.0f × %.0f", f.origin.x, f.origin.y, f.size.width, f.size.height];
+        cell.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"hidden:%@  alpha:%.2f", v.hidden ? @"隐藏" : @"显示", v.alpha];
+        cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPressInstance:)];
+        cell.gestureRecognizers = @[lp];
     } else {
         // 一级：类名（AI中文翻译）+ 实例数
         NSString *cls = self.displayNames[indexPath.row];
@@ -314,6 +318,7 @@ static NSMutableArray *gRemovedStack(void) {
         cell.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld 个实例", (long)arr.count];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.gestureRecognizers = nil;
     }
     return cell;
 }
@@ -362,6 +367,79 @@ static UIWindow *gPickMaskWindow;
 }
 
 #pragma mark - 详情 / 隐藏恢复
+
+// 高亮定位浮层
+static UIWindow *gHighlightWin;
+
+- (void)longPressInstance:(UILongPressGestureRecognizer *)lp {
+    if (lp.state != UIGestureRecognizerStateBegan) return;
+    UITableViewCell *cell = (UITableViewCell *)lp.view;
+    NSIndexPath *ip = [self.tableView indexPathForCell:cell];
+    if (!ip || !self.filterClass) return;
+    DHViewRow *row = _allRows[ip.row];
+    if (!row.view) { [self toast:@"视图已释放"]; return; }
+    UIView *v = row.view;
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图操作" message:NSStringFromClass([v class]) preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"高亮显示该UI（屏幕框出）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self highlightView:v];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"查看详情" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [self showDetailForView:v];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        UIView *parent = v.superview;
+        NSInteger idx = parent ? [parent.subviews indexOfObject:v] : NSNotFound;
+        if (parent) [gRemovedStack() addObject:@{
+            @"parent": [NSValue valueWithNonretainedObject:parent],
+            @"index": @(idx),
+            @"view": [NSValue valueWithNonretainedObject:v],
+        }];
+        [v removeFromSuperview];
+        [self reloadTree];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// 退出调试界面露出App，用独立浮层把目标视图在屏幕上红框框出
+- (void)highlightView:(UIView *)v {
+    UIWindow *key = [DHViewInspectorVC dhKeyWindow];
+    CGRect r = [v convertRect:v.bounds toView:key];
+    NSString *clsName = NSStringFromClass([v class]);
+
+    UIViewController *top = self;
+    while (top.presentingViewController) top = top.presentingViewController;
+    [top dismissViewControllerAnimated:YES completion:^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (gHighlightWin) gHighlightWin.hidden = YES;
+            UIWindow *hw = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            hw.windowLevel = UIWindowLevelAlert + 3;
+            hw.backgroundColor = [UIColor clearColor];
+            hw.rootViewController = [UIViewController new];
+
+            UIView *box = [[UIView alloc] initWithFrame:r];
+            box.layer.borderColor = [UIColor systemRedColor].CGColor;
+            box.layer.borderWidth = 3;
+            box.backgroundColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.15];
+            [hw addSubview:box];
+
+            UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(r.origin.x, MAX(r.origin.y - 26, 4), r.size.width, 22)];
+            lb.text = clsName;
+            lb.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+            lb.textColor = [UIColor whiteColor];
+            lb.backgroundColor = [UIColor systemRedColor];
+            lb.textAlignment = NSTextAlignmentCenter;
+            [hw addSubview:lb];
+
+            gHighlightWin = hw;
+            hw.hidden = NO;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                gHighlightWin.hidden = YES;
+            });
+        });
+    }];
+}
 
 - (void)showDetailForView:(UIView *)v {
     NSMutableString *info = [NSMutableString string];
