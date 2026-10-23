@@ -137,7 +137,6 @@ static NSString *dhBusinessClass(UIView *v) {
 @property (nonatomic, strong) UIWindow *pickWindow;
 @property (nonatomic, copy) NSString *searchText;
 @property (nonatomic, strong) NSArray *displayNames; // 一级过滤后类名
-@property (nonatomic, copy) NSString *targetClassName; // 外部跳转定位高亮的类名
 @end
 
 @implementation DHViewInspectorVC {

@@ -2,4 +2,7 @@
 
 // 视图检视器：遍历 keyWindow 视图树，查看视图层级/详情，支持隐藏与恢复
 @interface DHViewInspectorVC : UITableViewController
+// 外部跳转：定位并高亮该类
+@property (nonatomic, copy) NSString *targetClassName;
++ (UIWindow *)dhKeyWindow;
 @end
