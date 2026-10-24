@@ -84,6 +84,25 @@ static NSString *dhBusinessClass(UIView *v) {
 
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
     NSString *biz = dhBusinessClass(v);
+
+    // 收集该控件绑定的 target-action（按钮/开关等所有 UIControl）
+    NSMutableArray<NSDictionary *> *dhActions = [NSMutableArray new];
+    if ([v isKindOfClass:[UIControl class]]) {
+        UIControl *c = (UIControl *)v;
+        for (id t in c.allTargets) {
+            for (NSString *act in [c actionsForTarget:t forControlEvent:0xFFFF]) {
+                if (act.length) [dhActions addObject:@{@"cls": NSStringFromClass([t class]), @"sel": act}];
+            }
+        }
+    }
+    // 去重
+    NSMutableArray *uniq = [NSMutableArray new];
+    NSMutableSet *seen = [NSMutableSet new];
+    for (NSDictionary *a in dhActions) {
+        NSString *k = [NSString stringWithFormat:@"%@|%@", a[@"cls"], a[@"sel"]];
+        if (![seen containsObject:k]) { [seen addObject:k]; [uniq addObject:a]; }
+    }
+    dhActions = uniq;
     // 跳视图检视：定位该业务类
     [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"查看该类（视图检视）：%@", biz] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         self.view.window.hidden = YES;
@@ -99,6 +118,15 @@ static NSString *dhBusinessClass(UIView *v) {
         self.view.window.hidden = YES;
         [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": biz}];
     }]];
+    // 每个绑定方法：直接定位到全局扫描里的具体函数
+    for (NSDictionary *act in dhActions) {
+        NSString *tcls = act[@"cls"];
+        NSString *sel = act[@"sel"];
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"定位方法：[%@ %@]", tcls, sel] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            self.view.window.hidden = YES;
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": tcls, @"methodName": sel}];
+        }]];
+    }
     // 移除该视图：真正从父视图删掉，触发自动布局让下方上移
     [sheet addAction:[UIAlertAction actionWithTitle:@"移除该视图（下方自动上移）" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         UIView *parent = v.superview;

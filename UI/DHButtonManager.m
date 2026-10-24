@@ -54,6 +54,7 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 // 待全局扫描定位的类名（存 NSUserDefaults，主菜单打开后消费）
 - (void)onLocateScanClass:(NSNotification *)note {
     [[NSUserDefaults standardUserDefaults] setObject:note.userInfo[@"className"] forKey:@"DHPendingLocateClass"];
+    [[NSUserDefaults standardUserDefaults] setObject:note.userInfo[@"methodName"] ?: @"" forKey:@"DHPendingLocateMethod"];
     [[NSUserDefaults standardUserDefaults] synchronize];
     [self buttonTapped]; // 打开主菜单，由主菜单消费待办并跳转定位
 }

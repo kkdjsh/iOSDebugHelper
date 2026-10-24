@@ -14,8 +14,6 @@ static NSMutableArray *g_eventsCache; // 内存缓存，定期写入文件
 static dispatch_queue_t g_eventsQueue; // 文件读写串行队列
 static NSInteger g_cacheCount = 0; // 已缓存条数
 static BOOL g_monitoring = NO;
-static NSMutableSet *g_trackedKeys; // 页面追踪本次 swizzle 的 "class|sel"
-static BOOL g_tracking = NO;
 
 @implementation DHMonitorEvent
 
@@ -53,7 +51,6 @@ static BOOL g_tracking = NO;
         g_origImpMap = [NSMutableDictionary new];
         g_lastHitTime = [NSMutableDictionary new];
         g_eventsCache = [NSMutableArray new];
-        g_trackedKeys = [NSMutableSet new];
         g_eventsQueue = dispatch_queue_create("com.debughelper.monitor", DISPATCH_QUEUE_SERIAL);
     });
     return s;
@@ -354,96 +351,6 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
         g_cacheCount = 0;
         [[NSFileManager defaultManager] removeItemAtPath:[self eventsFilePath] error:nil];
     });
-}
-
-#pragma mark - 页面追踪
-
-- (BOOL)isTracking { return g_tracking; }
-
-+ (UIViewController *)dhRealVC:(UIViewController *)vc {
-    // 一路解包导航 / 标签容器，钻到最内层真实业务 VC
-    while (vc) {
-        if ([vc isKindOfClass:[UINavigationController class]]) {
-            vc = [(UINavigationController *)vc visibleViewController];
-        } else if ([vc isKindOfClass:[UITabBarController class]]) {
-            vc = [(UITabBarController *)vc selectedViewController];
-        } else {
-            break;
-        }
-    }
-    return vc;
-}
-
-+ (BOOL)dhIsPluginVC:(UIViewController *)vc {
-    vc = [self dhRealVC:vc];
-    NSString *cn = NSStringFromClass([vc class]);
-    return [cn hasPrefix:@"DH"];
-}
-
-+ (UIViewController *)dhTopmostViewController {
-    UIWindow *win = nil;
-    if (@available(iOS 13.0, *)) {
-        for (UIWindowScene *sc in [UIApplication sharedApplication].connectedScenes) {
-            if (sc.activationState == UISceneActivationStateForegroundActive) {
-                for (UIWindow *w in sc.windows) {
-                    if (!w.hidden && w.windowLevel == UIWindowLevelNormal) { win = w; break; }
-                }
-            }
-            if (win) break;
-        }
-    }
-    if (!win) win = [UIApplication sharedApplication].keyWindow;
-
-    // 沿 presented 链走，记录最后一个「非本插件」的 App VC，跳过调试菜单自身
-    UIViewController *vc = win.rootViewController;
-    UIViewController *lastAppVC = nil;
-    while (vc) {
-        if (![self dhIsPluginVC:vc]) lastAppVC = vc;
-        if (vc.presentedViewController) {
-            vc = vc.presentedViewController;
-        } else {
-            break;
-        }
-    }
-    UIViewController *result = [self dhRealVC:(lastAppVC ?: win.rootViewController)];
-    return result;
-}
-
-- (void)trackClassMethods:(Class)cls {
-    if (!cls) return;
-    g_tracking = YES;
-    unsigned int count = 0;
-    Method *methods = class_copyMethodList(cls, &count); // 只返回 cls 自身声明的方法，不含父类
-    @synchronized(g_origImpMap) {
-        for (unsigned int i = 0; i < count; i++) {
-            Method m = methods[i];
-            SEL sel = method_getName(m);
-            NSString *key = [NSString stringWithFormat:@"%@|%@", NSStringFromClass(cls), NSStringFromSelector(sel)];
-            if (g_origImpMap[key]) continue;
-            IMP orig = method_getImplementation(m);
-            g_origImpMap[key] = [NSValue valueWithPointer:orig];
-            [g_trackedKeys addObject:key];
-            method_setImplementation(m, (IMP)dh_log_imp);
-        }
-    }
-    if (methods) free(methods);
-}
-
-- (void)stopTracking {
-    g_tracking = NO;
-    @synchronized(g_origImpMap) {
-        for (NSString *key in [g_trackedKeys copy]) {
-            NSArray *parts = [key componentsSeparatedByString:@"|"];
-            if (parts.count != 2) continue;
-            Class cls = NSClassFromString(parts[0]);
-            if (!cls) continue;
-            SEL sel = NSSelectorFromString(parts[1]);
-            Method m = class_getInstanceMethod(cls, sel);
-            if (m) method_setImplementation(m, [g_origImpMap[key] pointerValue]);
-            [g_origImpMap removeObjectForKey:key];
-        }
-        [g_trackedKeys removeAllObjects];
-    }
 }
 
 @end

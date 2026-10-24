@@ -45,189 +45,6 @@
 }
 @end
 
-#pragma mark - 页面追踪控制器
-@interface DHTraceVC : UITableViewController
-@end
-@implementation DHTraceVC {
-    Class _trackedClass;
-    NSArray<NSString *> *_methodList;
-    NSArray<NSString *> *_actionList;
-    NSTimer *_tick;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"页面追踪";
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"TraceCell"];
-    UISwitch *sw = [[UISwitch alloc] init];
-    [sw addTarget:self action:@selector(toggleTrack:) forControlEvents:UIControlEventValueChanged];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重抓页面" style:UIBarButtonItemStylePlain target:self action:@selector(refreshTarget)];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ [self refreshTarget]; });
-}
-
-- (void)refreshTarget {
-    @try {
-        UIViewController *top = [DHMonitorManager dhTopmostViewController];
-        _trackedClass = [top class];
-        NSMutableArray *methods = [NSMutableArray new];
-        unsigned int c = 0;
-        Method *ms = class_copyMethodList(_trackedClass, &c);
-        for (unsigned int i = 0; i < c; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
-        if (ms) free(ms);
-        _methodList = [methods sortedArrayUsingSelector:@selector(compare:)];
-        _actionList = [self controlActionsInView:top.view];
-    } @catch (NSException *e) {
-        NSLog(@"[Trace] refreshTarget 异常: %@", e);
-    }
-    [self.tableView reloadData];
-}
-
-// 遍历视图树，收集所有 UIControl（按钮/开关/输入框等）绑定的 target-action
-- (NSArray<NSString *> *)controlActionsInView:(UIView *)v {
-    NSMutableArray *out = [NSMutableArray new];
-    @try {
-        for (UIView *sub in v.subviews) {
-            @try {
-                if ([sub isKindOfClass:[UIControl class]]) {
-                    UIControl *c = (UIControl *)sub;
-                    for (id t in c.allTargets) {
-                        for (NSString *act in [c actionsForTarget:t forControlEvent:0xFFFF]) {
-                            [out addObject:[NSString stringWithFormat:@"[%@ %@]", NSStringFromClass([t class]), act]];
-                        }
-                    }
-                }
-            } @catch (NSException *e) {}
-            [out addObjectsFromArray:[self controlActionsInView:sub]];
-        }
-    } @catch (NSException *e) {}
-    return [[out valueForKeyPath:@"@distinctUnionOfObjects.self"] copy] ?: @[];
-}
-
-- (void)toggleTrack:(UISwitch *)sw {
-    if (sw.on) {
-        [[DHMonitorManager shared] clearEvents];
-        [[DHMonitorManager shared] trackClassMethods:_trackedClass];
-        _tick = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(reloadEvents) userInfo:nil repeats:YES];
-    } else {
-        [[DHMonitorManager shared] stopTracking];
-        [_tick invalidate]; _tick = nil;
-    }
-}
-
-- (void)reloadEvents { [self.tableView reloadData]; }
-
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
-- (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
-    if (s == 0) return [NSString stringWithFormat:@"本类方法（%@）", NSStringFromClass(_trackedClass)];
-    if (s == 1) return @"页面按钮 action";
-    return @"触发记录（开启追踪后实时出现）";
-}
-- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
-    if (s == 0) return _methodList.count;
-    if (s == 1) return _actionList.count;
-    return [DHMonitorManager shared].events.count;
-}
-- (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"TraceCell" forIndexPath:ip];
-    cell.textLabel.font = [UIFont systemFontOfSize:12];
-    cell.textLabel.numberOfLines = 0;
-    if (ip.section == 0) {
-        cell.textLabel.text = ip.row < _methodList.count ? _methodList[ip.row] : @"";
-        cell.detailTextLabel.text = @"";
-    } else if (ip.section == 1) {
-        cell.textLabel.text = ip.row < _actionList.count ? _actionList[ip.row] : @"";
-    } else {
-        NSArray *evs = [DHMonitorManager shared].events;
-        if (ip.row < evs.count) {
-            DHMonitorEvent *e = evs[ip.row];
-            cell.textLabel.text = e.signature;
-            cell.detailTextLabel.text = [NSString stringWithFormat:@"×%ld  %@", (long)e.count, e.returnValue ?: @""];
-        }
-    }
-    return cell;
-}
-- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
-    [t deselectRowAtIndexPath:ip animated:YES];
-    NSString *cls = nil, *sel = nil, *raw = nil;
-    if (ip.section == 0) {
-        if (ip.row >= _methodList.count) return;
-        cls = NSStringFromClass(_trackedClass);
-        sel = _methodList[ip.row];
-        raw = [NSString stringWithFormat:@"[%@ %@]", cls, sel];
-    } else if (ip.section == 1) {
-        if (ip.row >= _actionList.count) return;
-        raw = _actionList[ip.row];
-    } else {
-        NSArray *evs = [DHMonitorManager shared].events;
-        if (ip.row >= evs.count) return;
-        raw = ((DHMonitorEvent *)evs[ip.row]).signature;
-    }
-    // 解析 "[Class sel]"
-    if ([raw hasPrefix:@"["] && [raw hasSuffix:@"]"]) {
-        NSString *inner = [raw substringWithRange:NSMakeRange(1, raw.length - 2)];
-        NSRange sp = [inner rangeOfString:@" "];
-        if (sp.location != NSNotFound) {
-            cls = [inner substringToIndex:sp.location];
-            sel = [inner substringFromIndex:sp.location + 1];
-        }
-    }
-    if (!cls.length || !sel.length) {
-        UIPasteboard.generalPasteboard.string = raw ?: @"";
-        [self showToast:@"已复制"];
-        return;
-    }
-    [self presentHookSheetWithClass:cls sel:sel raw:raw];
-}
-
-- (void)presentHookSheetWithClass:(NSString *)cls sel:(NSString *)sel raw:(NSString *)raw {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:raw message:@"选择 HOOK 返回值" preferredStyle:UIAlertControllerStyleActionSheet];
-    NSArray *defs = @[
-        @[@"返回 YES/TRUE", @(DHHookReturnTrue)],
-        @[@"返回 NO/FALSE", @(DHHookReturnFalse)],
-        @[@"返回 nil", @(DHHookReturnNil)],
-        @[@"返回 0", @(DHHookReturnZero)]
-    ];
-    for (NSArray *d in defs) {
-        [sheet addAction:[UIAlertAction actionWithTitle:d[0] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            [self installHook:cls sel:sel type:[d[1] integerValue]];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"复制签名" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        UIPasteboard.generalPasteboard.string = raw;
-        [self showToast:@"已复制"];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
-}
-
-- (void)installHook:(NSString *)cls sel:(NSString *)sel type:(DHHookReturnType)type {
-    DHHookInfo *h = [DHHookInfo new];
-    h.className = cls;
-    h.selectorName = sel;
-    h.returnType = type;
-    h.enabled = YES;
-    h.isClassMethod = NO;
-    if ([sel hasPrefix:@"set"]) h.realReturnType = @"void";
-    else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) h.realReturnType = @"BOOL";
-    else h.realReturnType = @"id";
-    h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
-    [[DHHookManager sharedManager] addHook:h];
-    [[DHHookManager sharedManager] saveHooks];
-    [[DHHookManager sharedManager] applyHook:h];
-    [self showToast:[NSString stringWithFormat:@"已HOOK %@", sel]];
-}
-- (void)showToast:(NSString *)msg {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
-    [self presentViewController:a animated:YES completion:nil];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [a dismissViewControllerAnimated:YES completion:nil]; });
-}
-@end
 
 #pragma mark - 补丁管理控制器
 @interface DHPatchListVC : UITableViewController
@@ -1328,6 +1145,7 @@
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<DHScannerResult *> *> *classGroups; // 类名->方法数组
 @property (nonatomic, copy) NSArray<NSString *> *displayClasses; // 分组模式当前可见类名（已搜索过滤）
 @property (nonatomic, copy) NSString *targetClassName; // 外部跳转定位高亮的类名
+@property (nonatomic, copy) NSString *targetMethodName; // 外部跳转定位到类内具体方法
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
 @property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
@@ -1369,6 +1187,49 @@
             NSIndexPath *ip = [NSIndexPath indexPathForRow:idx inSection:0];
             [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
         }
+        // 带方法名：自动下钻到该类并定位具体函数
+        if (self.targetMethodName.length) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.55 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                NSArray *methods = self.classGroups[self.targetClassName];
+                if (methods.count == 0) { [self showToast:@"该类不在扫描结果中"]; return; }
+                DHScanResultVC *sub = [DHScanResultVC new];
+                sub.allResults = methods;
+                sub.groupByClassMode = NO;
+                sub.title = self.targetClassName;
+                sub.targetMethodName = self.targetMethodName;
+                [self.navigationController pushViewController:sub animated:YES];
+            });
+        }
+    } else if (!self.groupByClassMode && self.targetMethodName) {
+        // 扁平模式：直接滚动高亮到目标方法
+        [self dhScrollToMethod:self.targetMethodName];
+    }
+}
+
+// 在扁平结果里找方法行并滚动高亮（兼容带冒号/不带冒号、参数差异）
+- (void)dhScrollToMethod:(NSString *)methodName {
+    if (!methodName.length) return;
+    NSArray *list = self.filteredResults;
+    NSInteger found = NSNotFound;
+    for (NSInteger i = 0; i < list.count; i++) {
+        DHScannerResult *r = list[i];
+        NSString *m = r.methodName ?: @"";
+        if ([m isEqualToString:methodName] || [m isEqualToString:[methodName stringByReplacingOccurrencesOfString:@":" withString:@""]] ||
+            [[m stringByReplacingOccurrencesOfString:@":" withString:@""] isEqualToString:[methodName stringByReplacingOccurrencesOfString:@":" withString:@""]]) {
+            found = i; break;
+        }
+    }
+    if (found != NSNotFound) {
+        NSIndexPath *ip = [NSIndexPath indexPathForRow:found inSection:0];
+        [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+        UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
+        [UIView animateWithDuration:0.4 animations:^{ cell.contentView.backgroundColor = [UIColor systemYellowColor]; } completion:^(BOOL f) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                cell.contentView.backgroundColor = [UIColor clearColor];
+            });
+        }];
+    } else {
+        [self showToast:[NSString stringWithFormat:@"扫描结果中未找到方法 %@", methodName]];
     }
 }
 
@@ -2907,6 +2768,8 @@ static const NSInteger kAIBatchSize = 500;
     NSString *pending = [[NSUserDefaults standardUserDefaults] stringForKey:@"DHPendingLocateClass"];
     if (!pending.length) return;
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingLocateClass"];
+    NSString *pendingMethod = [[NSUserDefaults standardUserDefaults] stringForKey:@"DHPendingLocateMethod"];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DHPendingLocateMethod"];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         NSData *cache = [[NSUserDefaults standardUserDefaults] dataForKey:@"DHScanCache"];
         NSArray *results = cache ? [NSKeyedUnarchiver unarchiveObjectWithData:cache] : nil;
@@ -2915,6 +2778,7 @@ static const NSInteger kAIBatchSize = 500;
         vc.allResults = results;
         vc.groupByClassMode = YES;
         vc.targetClassName = pending;
+        vc.targetMethodName = pendingMethod;
         [self.navigationController pushViewController:vc animated:YES];
     });
 }
@@ -3009,7 +2873,6 @@ static const NSInteger kAIBatchSize = 500;
                 @{@"title": @"视图检视",     @"icon": @"eye", @"action": @"openViewInspector"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
                 @{@"title": @"动态监控",     @"icon": @"waveform", @"action": @"openMonitor"},
-                @{@"title": @"页面追踪",     @"icon": @"scope", @"action": @"openTrace"},
             ],
         },
         @{
@@ -3077,9 +2940,6 @@ static const NSInteger kAIBatchSize = 500;
         [self showLogs];
     } else if ([action isEqualToString:@"openMonitor"]) {
         [self showMonitor];
-    } else if ([action isEqualToString:@"openTrace"]) {
-        DHTraceVC *vc = [DHTraceVC new];
-        [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openAbout"]) {
         [self showAlert:@"关于本工具" message:@"iOS调试助手 v1.0.0\n基于FLEX框架二次开发\n仅供学习研究使用"];
     } else if ([action isEqualToString:@"openHelp"]) {

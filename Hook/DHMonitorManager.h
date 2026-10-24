@@ -24,14 +24,4 @@
 - (void)stop;
 - (void)clearEvents;
 - (NSArray<NSString *> *)allMonitoredMethods;
-
-#pragma mark - 页面追踪：只追踪指定 VC 类自身实现的方法
-/// 取当前最顶层可见的视图控制器
-+ (UIViewController *)dhTopmostViewController;
-/// 只 swizzle 该类自己实现的实例方法（不碰父类），调用即记录
-- (void)trackClassMethods:(Class)cls;
-/// 停止页面追踪，只恢复本次追踪的方法
-- (void)stopTracking;
-/// 当前是否处于页面追踪
-@property (nonatomic, assign, readonly) BOOL isTracking;
 @end
