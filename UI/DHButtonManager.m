@@ -62,16 +62,18 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 - (void)showFloatingButton {
     // 透传Window，windowLevel最高但不拦截触摸
     DHPassthroughWindow *window = [[DHPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    // 提高windowLevel，防止被其他App的window盖住
-    window.windowLevel = UIWindowLevelStatusBar + 1000;
+    // 提高windowLevel，盖过 App 的 alert / 登录弹窗专用窗口，确保悬浮球始终可点
+    window.windowLevel = UIWindowLevelAlert + 1000;
     window.backgroundColor = [UIColor clearColor];
     window.hidden = NO;
-    // 兼容iOS 13+ Scene
+    // 兼容iOS 13+ Scene，优先挂到前台活跃场景
     if (@available(iOS 13.0, *)) {
-        UIWindowScene *scene = (UIWindowScene *)[UIApplication sharedApplication].connectedScenes.allObjects.firstObject;
-        if ([scene isKindOfClass:[UIWindowScene class]]) {
-            window.windowScene = scene;
+        UIWindowScene *target = nil;
+        for (UIWindowScene *sc in [UIApplication sharedApplication].connectedScenes) {
+            if ([sc isKindOfClass:[UIWindowScene class]] && sc.activationState == UISceneActivationStateForegroundActive) { target = sc; break; }
         }
+        if (!target) target = (UIWindowScene *)[UIApplication sharedApplication].connectedScenes.allObjects.firstObject;
+        if ([target isKindOfClass:[UIWindowScene class]]) window.windowScene = target;
     }
     window.rootViewController = [UIViewController new];
     window.rootViewController.view.backgroundColor = [UIColor clearColor];
