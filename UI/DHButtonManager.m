@@ -20,12 +20,11 @@ static NSString *const kDHButtonPosYKey   = @"DHButtonPosY";
 @implementation DHPassthroughWindow
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     // 只有落在悬浮按钮（外扩8pt容错）上才返回按钮，其余一律nil让事件穿透给App。
-    // 这样按钮区域稳定命中，拖拽手势不会因为手指稍微滑出60x60而被打断。
     UIButton *btn = [DHButtonManager sharedManager].floatingButton;
     if (btn && btn.superview) {
-        CGPoint local = [self.rootViewController.view convertPoint:point fromView:self];
+        // 按钮直接加在铺满窗口的 rootVC.view 上，frame 即窗口坐标，直接判定，避免 convertPoint 错位
         CGRect hitRect = CGRectInset(btn.frame, -8, -8);
-        if (CGRectContainsPoint(hitRect, local)) return btn;
+        if (CGRectContainsPoint(hitRect, point)) return btn;
     }
     return nil;
 }
