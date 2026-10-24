@@ -63,38 +63,49 @@
     [sw addTarget:self action:@selector(toggleTrack:) forControlEvents:UIControlEventValueChanged];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重抓页面" style:UIBarButtonItemStylePlain target:self action:@selector(refreshTarget)];
-    [self refreshTarget];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ [self refreshTarget]; });
 }
 
 - (void)refreshTarget {
-    UIViewController *top = [DHMonitorManager dhTopmostViewController];
-    _trackedClass = [top class];
-    // 本类自身方法
-    NSMutableArray *methods = [NSMutableArray new];
-    unsigned int c = 0;
-    Method *ms = class_copyMethodList(_trackedClass, &c);
-    for (unsigned int i = 0; i < c; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
-    if (ms) free(ms);
-    _methodList = [methods sortedArrayUsingSelector:@selector(compare:)];
-    // 页面按钮 action
-    _actionList = [self buttonActionsInView:top.view];
+    @try {
+        UIViewController *top = [DHMonitorManager dhTopmostViewController];
+        _trackedClass = [top class];
+        NSMutableArray *methods = [NSMutableArray new];
+        unsigned int c = 0;
+        Method *ms = class_copyMethodList(_trackedClass, &c);
+        for (unsigned int i = 0; i < c; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
+        if (ms) free(ms);
+        _methodList = [methods sortedArrayUsingSelector:@selector(compare:)];
+        _actionList = [self buttonActionsInView:top.view];
+    } @catch (NSException *e) {
+        NSLog(@"[Trace] refreshTarget 异常: %@", e);
+    }
     [self.tableView reloadData];
 }
 
 - (NSArray<NSString *> *)buttonActionsInView:(UIView *)v {
     NSMutableArray *out = [NSMutableArray new];
-    for (UIView *sub in v.subviews) {
-        if ([sub isKindOfClass:[UIButton class]]) {
-            UIButton *b = (UIButton *)sub;
-            for (id t in b.allTargets) {
-                for (NSString *act in [b actionsForTarget:t forControlEvent:UIControlEventTouchUpInside]) {
-                    [out addObject:[NSString stringWithFormat:@"[%@ %@]", NSStringFromClass([t class]), act]];
+    @try {
+        for (UIView *sub in v.subviews) {
+            @try {
+                if ([sub isKindOfClass:[UIButton class]]) {
+                    UIButton *b = (UIButton *)sub;
+                    for (id t in b.allTargets) {
+                        for (NSString *act in [b actionsForTarget:t forControlEvent:UIControlEventTouchUpInside]) {
+                            [out addObject:[NSString stringWithFormat:@"[%@ %@]", NSStringFromClass([t class]), act]];
+                        }
+                    }
                 }
-            }
+            } @catch (NSException *e) {}
+            [out addObjectsFromArray:[self buttonActionsInView:sub]];
         }
-        [out addObjectsFromArray:[self buttonActionsInView:sub]];
-    }
-    return [out valueForKeyPath:@"@distinctUnionOfSets.self"];
+    } @catch (NSException *e) {}
+    return [out valueForKeyPath:@"@distinctUnionOfSets.self"] ?: @[];
 }
 
 - (void)toggleTrack:(UISwitch *)sw {
