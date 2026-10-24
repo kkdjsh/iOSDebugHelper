@@ -360,6 +360,17 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 
 - (BOOL)isTracking { return g_tracking; }
 
++ (UIViewController *)dhRealVC:(UIViewController *)vc {
+    while ([vc isKindOfClass:[UINavigationController class]]) vc = [(UINavigationController *)vc visibleViewController];
+    return vc;
+}
+
++ (BOOL)dhIsPluginVC:(UIViewController *)vc {
+    vc = [self dhRealVC:vc];
+    NSString *cn = NSStringFromClass([vc class]);
+    return [cn hasPrefix:@"DH"];
+}
+
 + (UIViewController *)dhTopmostViewController {
     UIWindow *win = nil;
     if (@available(iOS 13.0, *)) {
@@ -373,10 +384,20 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
         }
     }
     if (!win) win = [UIApplication sharedApplication].keyWindow;
+
+    // 沿 presented 链走，记录最后一个「非本插件」的 App VC，跳过调试菜单自身
     UIViewController *vc = win.rootViewController;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
-    if ([vc isKindOfClass:[UINavigationController class]]) vc = [(UINavigationController *)vc visibleViewController];
-    return vc;
+    UIViewController *lastAppVC = nil;
+    while (vc) {
+        if (![self dhIsPluginVC:vc]) lastAppVC = vc;
+        if (vc.presentedViewController) {
+            vc = vc.presentedViewController;
+        } else {
+            break;
+        }
+    }
+    UIViewController *result = [self dhRealVC:(lastAppVC ?: win.rootViewController)];
+    return result;
 }
 
 - (void)trackClassMethods:(Class)cls {
