@@ -85,6 +85,13 @@ static NSString *dhBusinessClass(UIView *v) {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"视图详情" message:info preferredStyle:UIAlertControllerStyleActionSheet];
     NSString *biz = dhBusinessClass(v);
 
+    // 沿响应者链找所属视图控制器（表格行/页面的点击逻辑通常在它里面）
+    UIResponder *resp = v.nextResponder;
+    while (resp && ![resp isKindOfClass:[UIViewController class]]) resp = resp.nextResponder;
+    UIViewController *ownerVC = [resp isKindOfClass:[UIViewController class]] ? (UIViewController *)resp : nil;
+    NSString *vcCls = ownerVC ? NSStringFromClass([ownerVC class]) : nil;
+    if (vcCls.length) [info appendFormat:@"\n所属VC：%@", vcCls];
+
     // 收集该控件绑定的 target-action（按钮/开关等所有 UIControl）
     NSMutableArray<NSDictionary *> *dhActions = [NSMutableArray new];
     if ([v isKindOfClass:[UIControl class]]) {
@@ -125,6 +132,24 @@ static NSString *dhBusinessClass(UIView *v) {
         [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"定位方法：[%@ %@]", tcls, sel] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             self.view.window.hidden = YES;
             [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": tcls, @"methodName": sel}];
+        }]];
+    }
+
+    // 表格/集合行：点击逻辑在所属VC的 didSelect 里，直接定位该方法
+    NSString *cellSel = nil;
+    if ([v isKindOfClass:[UITableViewCell class]]) cellSel = @"tableView:didSelectRowAtIndexPath:";
+    else if ([v isKindOfClass:[UICollectionViewCell class]]) cellSel = @"collectionView:didSelectItemAtIndexPath:";
+    if (cellSel.length && vcCls.length && ![vcCls hasPrefix:@"UI"]) {
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"定位列表点击方法：[%@ %@]", vcCls, cellSel] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            self.view.window.hidden = YES;
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": vcCls, @"methodName": cellSel}];
+        }]];
+    }
+    // 无控件action但找到业务VC：兜底定位整个VC类
+    if (dhActions.count == 0 && vcCls.length && ![vcCls hasPrefix:@"UI"]) {
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"定位所属VC类：%@", vcCls] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            self.view.window.hidden = YES;
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DHOpenScanLocateClass" object:nil userInfo:@{@"className": vcCls}];
         }]];
     }
     // 移除该视图：真正从父视图删掉，触发自动布局让下方上移
