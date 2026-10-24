@@ -361,7 +361,16 @@ static void dh_log_imp(id self, SEL _cmd, ...) {
 - (BOOL)isTracking { return g_tracking; }
 
 + (UIViewController *)dhRealVC:(UIViewController *)vc {
-    while ([vc isKindOfClass:[UINavigationController class]]) vc = [(UINavigationController *)vc visibleViewController];
+    // 一路解包导航 / 标签容器，钻到最内层真实业务 VC
+    while (vc) {
+        if ([vc isKindOfClass:[UINavigationController class]]) {
+            vc = [(UINavigationController *)vc visibleViewController];
+        } else if ([vc isKindOfClass:[UITabBarController class]]) {
+            vc = [(UITabBarController *)vc selectedViewController];
+        } else {
+            break;
+        }
+    }
     return vc;
 }
 

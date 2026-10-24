@@ -81,28 +81,29 @@
         for (unsigned int i = 0; i < c; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
         if (ms) free(ms);
         _methodList = [methods sortedArrayUsingSelector:@selector(compare:)];
-        _actionList = [self buttonActionsInView:top.view];
+        _actionList = [self controlActionsInView:top.view];
     } @catch (NSException *e) {
         NSLog(@"[Trace] refreshTarget 异常: %@", e);
     }
     [self.tableView reloadData];
 }
 
-- (NSArray<NSString *> *)buttonActionsInView:(UIView *)v {
+// 遍历视图树，收集所有 UIControl（按钮/开关/输入框等）绑定的 target-action
+- (NSArray<NSString *> *)controlActionsInView:(UIView *)v {
     NSMutableArray *out = [NSMutableArray new];
     @try {
         for (UIView *sub in v.subviews) {
             @try {
-                if ([sub isKindOfClass:[UIButton class]]) {
-                    UIButton *b = (UIButton *)sub;
-                    for (id t in b.allTargets) {
-                        for (NSString *act in [b actionsForTarget:t forControlEvent:UIControlEventTouchUpInside]) {
+                if ([sub isKindOfClass:[UIControl class]]) {
+                    UIControl *c = (UIControl *)sub;
+                    for (id t in c.allTargets) {
+                        for (NSString *act in [c actionsForTarget:t forControlEvent:0xFFFF]) {
                             [out addObject:[NSString stringWithFormat:@"[%@ %@]", NSStringFromClass([t class]), act]];
                         }
                     }
                 }
             } @catch (NSException *e) {}
-            [out addObjectsFromArray:[self buttonActionsInView:sub]];
+            [out addObjectsFromArray:[self controlActionsInView:sub]];
         }
     } @catch (NSException *e) {}
     return [out valueForKeyPath:@"@distinctUnionOfSets.self"] ?: @[];
@@ -150,12 +151,67 @@
 }
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
-    NSString *text;
-    if (ip.section == 0) text = _methodList[ip.row];
-    else if (ip.section == 1) text = _actionList[ip.row];
-    else text = [DHMonitorManager shared].events[ip.row].signature;
-    UIPasteboard.generalPasteboard.string = text;
-    [self showToast:@"已复制"];
+    NSString *cls = nil, *sel = nil, *raw = nil;
+    if (ip.section == 0) {
+        cls = NSStringFromClass(_trackedClass);
+        sel = _methodList[ip.row];
+        raw = [NSString stringWithFormat:@"[%@ %@]", cls, sel];
+    } else {
+        raw = (ip.section == 1) ? _actionList[ip.row] : [DHMonitorManager shared].events[ip.row].signature;
+        // 解析 "[Class sel]"
+        if ([raw hasPrefix:@"["] && [raw hasSuffix:@"]"]) {
+            NSString *inner = [raw substringWithRange:NSMakeRange(1, raw.length - 2)];
+            NSRange sp = [inner rangeOfString:@" "];
+            if (sp.location != NSNotFound) {
+                cls = [inner substringToIndex:sp.location];
+                sel = [inner substringFromIndex:sp.location + 1];
+            }
+        }
+    }
+    if (!cls.length || !sel.length) {
+        UIPasteboard.generalPasteboard.string = raw ?: @"";
+        [self showToast:@"已复制"];
+        return;
+    }
+    [self presentHookSheetWithClass:cls sel:sel raw:raw];
+}
+
+- (void)presentHookSheetWithClass:(NSString *)cls sel:(NSString *)sel raw:(NSString *)raw {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:raw message:@"选择 HOOK 返回值" preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray *defs = @[
+        @[@"返回 YES/TRUE", @(DHHookReturnTrue)],
+        @[@"返回 NO/FALSE", @(DHHookReturnFalse)],
+        @[@"返回 nil", @(DHHookReturnNil)],
+        @[@"返回 0", @(DHHookReturnZero)]
+    ];
+    for (NSArray *d in defs) {
+        [sheet addAction:[UIAlertAction actionWithTitle:d[0] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self installHook:cls sel:sel type:[d[1] integerValue]];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"复制签名" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        UIPasteboard.generalPasteboard.string = raw;
+        [self showToast:@"已复制"];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)installHook:(NSString *)cls sel:(NSString *)sel type:(DHHookReturnType)type {
+    DHHookInfo *h = [DHHookInfo new];
+    h.className = cls;
+    h.selectorName = sel;
+    h.returnType = type;
+    h.enabled = YES;
+    h.isClassMethod = NO;
+    if ([sel hasPrefix:@"set"]) h.realReturnType = @"void";
+    else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) h.realReturnType = @"BOOL";
+    else h.realReturnType = @"id";
+    h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
+    [[DHHookManager sharedManager] addHook:h];
+    [[DHHookManager sharedManager] saveHooks];
+    [[DHHookManager sharedManager] applyHook:h];
+    [self showToast:[NSString stringWithFormat:@"已HOOK %@", sel]];
 }
 - (void)showToast:(NSString *)msg {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
