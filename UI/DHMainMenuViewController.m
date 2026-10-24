@@ -106,7 +106,7 @@
             [out addObjectsFromArray:[self controlActionsInView:sub]];
         }
     } @catch (NSException *e) {}
-    return [out valueForKeyPath:@"@distinctUnionOfSets.self"] ?: @[];
+    return [[out valueForKeyPath:@"@distinctUnionOfObjects.self"] copy] ?: @[];
 }
 
 - (void)toggleTrack:(UISwitch *)sw {
@@ -138,14 +138,17 @@
     cell.textLabel.font = [UIFont systemFontOfSize:12];
     cell.textLabel.numberOfLines = 0;
     if (ip.section == 0) {
-        cell.textLabel.text = _methodList[ip.row];
+        cell.textLabel.text = ip.row < _methodList.count ? _methodList[ip.row] : @"";
         cell.detailTextLabel.text = @"";
     } else if (ip.section == 1) {
-        cell.textLabel.text = _actionList[ip.row];
+        cell.textLabel.text = ip.row < _actionList.count ? _actionList[ip.row] : @"";
     } else {
-        DHMonitorEvent *e = [DHMonitorManager shared].events[ip.row];
-        cell.textLabel.text = e.signature;
-        cell.detailTextLabel.text = [NSString stringWithFormat:@"×%ld  %@", (long)e.count, e.returnValue ?: @""];
+        NSArray *evs = [DHMonitorManager shared].events;
+        if (ip.row < evs.count) {
+            DHMonitorEvent *e = evs[ip.row];
+            cell.textLabel.text = e.signature;
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"×%ld  %@", (long)e.count, e.returnValue ?: @""];
+        }
     }
     return cell;
 }
@@ -153,19 +156,25 @@
     [t deselectRowAtIndexPath:ip animated:YES];
     NSString *cls = nil, *sel = nil, *raw = nil;
     if (ip.section == 0) {
+        if (ip.row >= _methodList.count) return;
         cls = NSStringFromClass(_trackedClass);
         sel = _methodList[ip.row];
         raw = [NSString stringWithFormat:@"[%@ %@]", cls, sel];
+    } else if (ip.section == 1) {
+        if (ip.row >= _actionList.count) return;
+        raw = _actionList[ip.row];
     } else {
-        raw = (ip.section == 1) ? _actionList[ip.row] : [DHMonitorManager shared].events[ip.row].signature;
-        // 解析 "[Class sel]"
-        if ([raw hasPrefix:@"["] && [raw hasSuffix:@"]"]) {
-            NSString *inner = [raw substringWithRange:NSMakeRange(1, raw.length - 2)];
-            NSRange sp = [inner rangeOfString:@" "];
-            if (sp.location != NSNotFound) {
-                cls = [inner substringToIndex:sp.location];
-                sel = [inner substringFromIndex:sp.location + 1];
-            }
+        NSArray *evs = [DHMonitorManager shared].events;
+        if (ip.row >= evs.count) return;
+        raw = evs[ip.row].signature;
+    }
+    // 解析 "[Class sel]"
+    if ([raw hasPrefix:@"["] && [raw hasSuffix:@"]"]) {
+        NSString *inner = [raw substringWithRange:NSMakeRange(1, raw.length - 2)];
+        NSRange sp = [inner rangeOfString:@" "];
+        if (sp.location != NSNotFound) {
+            cls = [inner substringToIndex:sp.location];
+            sel = [inner substringFromIndex:sp.location + 1];
         }
     }
     if (!cls.length || !sel.length) {
