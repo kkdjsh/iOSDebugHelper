@@ -45,6 +45,114 @@
 }
 @end
 
+#pragma mark - 页面追踪控制器
+@interface DHTraceVC : UITableViewController
+@end
+@implementation DHTraceVC {
+    Class _trackedClass;
+    NSArray<NSString *> *_methodList;
+    NSArray<NSString *> *_actionList;
+    NSTimer *_tick;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"页面追踪";
+    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"TraceCell"];
+    UISwitch *sw = [[UISwitch alloc] init];
+    [sw addTarget:self action:@selector(toggleTrack:) forControlEvents:UIControlEventValueChanged];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:sw];
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"重抓页面" style:UIBarButtonItemStylePlain target:self action:@selector(refreshTarget)];
+    [self refreshTarget];
+}
+
+- (void)refreshTarget {
+    UIViewController *top = [DHMonitorManager dhTopmostViewController];
+    _trackedClass = [top class];
+    // 本类自身方法
+    NSMutableArray *methods = [NSMutableArray new];
+    unsigned int c = 0;
+    Method *ms = class_copyMethodList(_trackedClass, &c);
+    for (unsigned int i = 0; i < c; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
+    if (ms) free(ms);
+    _methodList = [methods sortedArrayUsingSelector:@selector(compare:)];
+    // 页面按钮 action
+    _actionList = [self buttonActionsInView:top.view];
+    [self.tableView reloadData];
+}
+
+- (NSArray<NSString *> *)buttonActionsInView:(UIView *)v {
+    NSMutableArray *out = [NSMutableArray new];
+    for (UIView *sub in v.subviews) {
+        if ([sub isKindOfClass:[UIButton class]]) {
+            UIButton *b = (UIButton *)sub;
+            for (id t in b.allTargets) {
+                for (NSString *act in [b actionsForTarget:t forControlEvent:UIControlEventTouchUpInside]) {
+                    [out addObject:[NSString stringWithFormat:@"[%@ %@]", NSStringFromClass([t class]), act]];
+                }
+            }
+        }
+        [out addObjectsFromArray:[self buttonActionsInView:sub]];
+    }
+    return [out valueForKeyPath:@"@distinctUnionOfSets.self"];
+}
+
+- (void)toggleTrack:(UISwitch *)sw {
+    if (sw.on) {
+        [[DHMonitorManager shared] clearEvents];
+        [[DHMonitorManager shared] trackClassMethods:_trackedClass];
+        _tick = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(reloadEvents) userInfo:nil repeats:YES];
+    } else {
+        [[DHMonitorManager shared] stopTracking];
+        [_tick invalidate]; _tick = nil;
+    }
+}
+
+- (void)reloadEvents { [self.tableView reloadData]; }
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
+- (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
+    if (s == 0) return [NSString stringWithFormat:@"本类方法（%@）", NSStringFromClass(_trackedClass)];
+    if (s == 1) return @"页面按钮 action";
+    return @"触发记录（开启追踪后实时出现）";
+}
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+    if (s == 0) return _methodList.count;
+    if (s == 1) return _actionList.count;
+    return [DHMonitorManager shared].events.count;
+}
+- (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"TraceCell" forIndexPath:ip];
+    cell.textLabel.font = [UIFont systemFontOfSize:12];
+    cell.textLabel.numberOfLines = 0;
+    if (ip.section == 0) {
+        cell.textLabel.text = _methodList[ip.row];
+        cell.detailTextLabel.text = @"";
+    } else if (ip.section == 1) {
+        cell.textLabel.text = _actionList[ip.row];
+    } else {
+        DHMonitorEvent *e = [DHMonitorManager shared].events[ip.row];
+        cell.textLabel.text = e.signature;
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"×%ld  %@", (long)e.count, e.returnValue ?: @""];
+    }
+    return cell;
+}
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:YES];
+    NSString *text;
+    if (ip.section == 0) text = _methodList[ip.row];
+    else if (ip.section == 1) text = _actionList[ip.row];
+    else text = [DHMonitorManager shared].events[ip.row].signature;
+    UIPasteboard.generalPasteboard.string = text;
+    [self showToast:@"已复制"];
+}
+- (void)showToast:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:a animated:YES completion:nil];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [a dismissViewControllerAnimated:YES completion:nil]; });
+}
+@end
+
 #pragma mark - 补丁管理控制器
 @interface DHPatchListVC : UITableViewController
 @property (nonatomic, copy, nullable) NSString *currentFolder; // nil=根目录
@@ -2825,6 +2933,7 @@ static const NSInteger kAIBatchSize = 500;
                 @{@"title": @"视图检视",     @"icon": @"eye", @"action": @"openViewInspector"},
                 @{@"title": @"日志查看",     @"icon": @"doc.text.fill", @"action": @"openLogs"},
                 @{@"title": @"动态监控",     @"icon": @"waveform", @"action": @"openMonitor"},
+                @{@"title": @"页面追踪",     @"icon": @"scope", @"action": @"openTrace"},
             ],
         },
         @{
@@ -2892,6 +3001,9 @@ static const NSInteger kAIBatchSize = 500;
         [self showLogs];
     } else if ([action isEqualToString:@"openMonitor"]) {
         [self showMonitor];
+    } else if ([action isEqualToString:@"openTrace"]) {
+        DHTraceVC *vc = [DHTraceVC new];
+        [self.navigationController pushViewController:vc animated:YES];
     } else if ([action isEqualToString:@"openAbout"]) {
         [self showAlert:@"关于本工具" message:@"iOS调试助手 v1.0.0\n基于FLEX框架二次开发\n仅供学习研究使用"];
     } else if ([action isEqualToString:@"openHelp"]) {
