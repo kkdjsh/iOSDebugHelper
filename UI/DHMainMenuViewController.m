@@ -166,7 +166,7 @@
     } else {
         NSArray *evs = [DHMonitorManager shared].events;
         if (ip.row >= evs.count) return;
-        raw = evs[ip.row].signature;
+        raw = ((DHMonitorEvent *)evs[ip.row]).signature;
     }
     // 解析 "[Class sel]"
     if ([raw hasPrefix:@"["] && [raw hasSuffix:@"]"]) {
@@ -3361,7 +3361,9 @@ static const NSInteger kAIBatchSize = 500;
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"MonitorCell"];
     }
-    DHMonitorEvent *e = [DHMonitorManager shared].events[indexPath.row];
+    NSArray *evs = [DHMonitorManager shared].events;
+    if (indexPath.row >= evs.count) { return cell; }
+    DHMonitorEvent *e = evs[indexPath.row];
     NSString *countStr = [NSString stringWithFormat:@" (×%ld)", (long)e.count];
     cell.textLabel.text = [NSString stringWithFormat:@"%@%@", e.signature, countStr];
     cell.textLabel.font = [UIFont systemFontOfSize:13];
