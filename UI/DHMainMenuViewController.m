@@ -1137,6 +1137,32 @@
 
 @end
 
+// Objective-C 类型编码 → 可读类型名（属性 T 编码 / ivar 编码通用）
+static NSString *DHReadableType(NSString *enc) {
+    enc = [enc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if (!enc.length) return @"";
+    // @"ClassName" / @"Protocol<...>"
+    if ([enc hasPrefix:@"@\""]) {
+        NSRange r = [enc rangeOfString:@"\"" options:0 range:NSMakeRange(2, enc.length - 2)];
+        if (r.location != NSNotFound) return [enc substringWithRange:NSMakeRange(2, r.location - 2)];
+        return @"id";
+    }
+    static NSDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        map = @{@"@":@"id", @"?":@"block", @"#":@"Class", @":":@"SEL",
+                @"B":@"BOOL", @"c":@"char", @"i":@"int", @"s":@"short",
+                @"l":@"long", @"q":@"long long", @"C":@"unsigned char",
+                @"I":@"unsigned int", @"S":@"unsigned short", @"L":@"unsigned long",
+                @"Q":@"NSUInteger", @"f":@"float", @"d":@"double", @"*":@"char*", @"v":@"void"};
+    });
+    NSString *head = [enc substringToIndex:1];
+    if (map[head]) return map[head];
+    if ([head isEqualToString:@"^"]) return [@"*" stringByAppendingString:DHReadableType([enc substringFromIndex:1])];
+    if ([head isEqualToString:@"{"]) return @"struct";
+    return enc;
+}
+
 #pragma mark - 类详情控制器（runtime 反射：概览/属性/成员变量/实例方法/类方法/继承链）
 @interface DHClassDetailVC : UITableViewController
 @property (nonatomic, copy) NSString *className;
@@ -1150,6 +1176,12 @@
     NSArray *_instMethods;    // 实例方法名
     NSArray *_classMethods;   // 类方法名
     BOOL _translating;
+    NSMutableArray *_aiBatches;   // 待翻批（每批<=100方法名）
+    NSInteger _aiInflight;
+    NSMutableArray *_aiMissing;   // 漏翻待补
+    NSInteger _aiTotal;
+    NSInteger _aiDone;
+    BOOL _aiRetried;              // 漏翻是否已补过一轮
 }
 
 - (void)viewDidLoad {
@@ -1201,7 +1233,7 @@
         for (unsigned int j = 0; j < ac; j++) {
             NSString *an = [NSString stringWithUTF8String:at[j].name];
             NSString *av = at[j].value ? [NSString stringWithUTF8String:at[j].value] : @"";
-            if ([an isEqualToString:@"T"]) type = [av stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"@\""]];
+            if ([an isEqualToString:@"T"]) type = DHReadableType(av);
             else if ([an isEqualToString:@"R"]) [attr appendString:@"readonly "];
             else if ([an isEqualToString:@"C"]) [attr appendString:@"copy "];
             else if ([an isEqualToString:@"&"]) [attr appendString:@"strong "];
@@ -1222,7 +1254,9 @@
         Ivar v = iv[i];
         NSString *name = [NSString stringWithUTF8String:ivar_getName(v)];
         const char *te = ivar_getTypeEncoding(v);
-        NSString *type = te ? [NSString stringWithUTF8String:te] : @"";
+        NSString *raw = te ? [NSString stringWithUTF8String:te] : @"";
+        NSString *type = DHReadableType(raw);
+        if (![type isEqualToString:raw] && raw.length) type = [NSString stringWithFormat:@"%@  (%@)", type, raw];
         [ivars addObject:@{@"name": name, @"offset": [NSString stringWithFormat:@"offset %ld", (long)ivar_getOffset(v)], @"type": type}];
     }
     if (iv) free(iv);
@@ -1350,24 +1384,63 @@
     if (!cfg.apiKey.length) { [self toast:@"请先在AI配置中心填写API Key"]; return; }
     if (!cfg.apiURL.length) { [self toast:@"请先在AI配置中心填写API地址"]; return; }
 
-    NSMutableArray *need = [NSMutableArray new];
     NSMutableArray *allSel = [NSMutableArray arrayWithArray:_instMethods];
     [allSel addObjectsFromArray:_classMethods];
+    NSMutableArray *need = [NSMutableArray new];
     for (NSString *sel in allSel) {
         if (![DHAIManager translationForKey:sel].length) [need addObject:sel];
     }
     if (need.count == 0) { [self toast:@"本页方法均已翻译"]; [self.tableView reloadData]; return; }
 
     _translating = YES;
-    [self toast:[NSString stringWithFormat:@"正在翻译 %ld 个方法…", (long)need.count]];
+    _aiRetried = NO;
+    _aiMissing = [NSMutableArray new];
+    _aiBatches = [NSMutableArray new];
+    NSInteger batchSize = 100;
+    for (NSInteger i = 0; i < need.count; i += batchSize) {
+        NSInteger end = MIN(i + batchSize, need.count);
+        [_aiBatches addObject:[need subarrayWithRange:NSMakeRange(i, end - i)]];
+    }
+    _aiTotal = need.count;
+    _aiDone = 0;
+    _aiInflight = 0;
+    [self toast:[NSString stringWithFormat:@"翻译 %ld 个方法，%ld 批并发…", (long)need.count, (long)_aiBatches.count]];
+    [self pumpTransBatches];
+}
 
+- (void)pumpTransBatches {
+    while (_aiInflight < 3 && _aiBatches.count > 0) {
+        NSArray *b = _aiBatches.firstObject;
+        [_aiBatches removeObjectAtIndex:0];
+        _aiInflight++;
+        [self sendTransBatch:b retry:0];
+    }
+    if (_aiInflight == 0) {
+        // 全部批结束：漏翻项自动补一轮
+        if (!_aiRetried && _aiMissing.count > 0) {
+            _aiRetried = YES;
+            NSArray *miss = [_aiMissing copy];
+            _aiMissing = [NSMutableArray new];
+            _aiBatches = [NSMutableArray arrayWithArray:miss];
+            [self pumpTransBatches];
+            return;
+        }
+        [DHAIManager flushCache];
+        _translating = NO;
+        [self.tableView reloadData];
+        [self toast:[NSString stringWithFormat:@"翻译完成 %ld/%ld", (long)_aiDone, (long)_aiTotal]];
+    }
+}
+
+- (void)sendTransBatch:(NSArray *)batch retry:(NSInteger)retry {
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
     NSString *apiURL = cfg.apiURL;
     if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
     NSDictionary *body = @{
         @"model": cfg.model ?: @"deepseek-chat",
         @"messages": @[
-            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是一个 Objective-C 方法名数组，你需要把每个方法名翻译成简洁的中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译。不要输出任何其他内容。"},
-            @{@"role": @"user", @"content": [need componentsJoinedByString:@"\n"]},
+            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是 Objective-C 方法名数组，把每个方法名翻译成简洁中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译，每个 key 都必须给出、不要遗漏，不要输出其他内容。"},
+            @{@"role": @"user", @"content": [batch componentsJoinedByString:@"\n"]},
         ],
         @"temperature": @0.3,
         @"response_format": @{@"type": @"json_object"},
@@ -1384,27 +1457,31 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(weakSelf) s = weakSelf;
             if (!s) return;
-            s->_translating = NO;
-            if (error) { [s toast:@"翻译失败，请重试"]; return; }
+            void (^fail)(void) = ^{
+                if (retry < 1) { [s sendTransBatch:batch retry:retry + 1]; }
+                else { [s->_aiMissing addObjectsFromArray:batch]; s->_aiInflight--; [s pumpTransBatches]; }
+            };
+            if (error) { fail(); return; }
             NSError *je;
             id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
-            if (je || ![outer isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译返回解析失败"]; return; }
+            if (je || ![outer isKindOfClass:[NSDictionary class]]) { fail(); return; }
             id content = outer[@"choices"][0][@"message"][@"content"];
-            if (![content isKindOfClass:[NSString class]] || ![(NSString *)content length]) { [s toast:@"翻译返回为空"]; return; }
+            if (![content isKindOfClass:[NSString class]] || ![(NSString *)content length]) { fail(); return; }
             NSError *pe;
-            id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pe];
-            if (pe || ![map isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译JSON解析失败"]; return; }
-            NSInteger ok = 0;
-            for (NSString *sel in need) {
+            id map = [NSJSONSerialization JSONObjectWithData:[(NSString *)content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pe];
+            if (pe || ![map isKindOfClass:[NSDictionary class]]) { fail(); return; }
+            for (NSString *sel in batch) {
                 id zh = map[sel];
                 if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
                     [DHAIManager setTranslation:zh forKey:sel];
-                    ok++;
+                    s->_aiDone++;
+                } else {
+                    [s->_aiMissing addObject:sel];
                 }
             }
-            [DHAIManager flushCache];
+            s->_aiInflight--;
             [s.tableView reloadData];
-            [s toast:[NSString stringWithFormat:@"翻译完成 %ld/%ld", (long)ok, (long)need.count]];
+            [s pumpTransBatches];
         });
     }];
     [task resume];
