@@ -1144,6 +1144,7 @@
 @implementation DHClassDetailVC {
     Class _cls;
     NSArray *_overview;       // 概览行 @{@"k":.., @"v":..}
+    NSArray *_chain;         // 继承链类名（本类→…→NSObject），每行可点跳转
     NSArray *_props;          // 属性 @{@"name",@"type",@"attrs"}
     NSArray *_ivars;          // 成员变量 @{@"name",@"offset",@"type"}
     NSArray *_instMethods;    // 实例方法名
@@ -1169,7 +1170,7 @@
 
     if (!_cls) {
         [ov addObject:@{@"k": @"提示", @"v": @"运行时未找到该类（可能未加载）"}];
-        _overview = ov; _props = props; _ivars = ivars; _instMethods = instM; _classMethods = classM;
+        _overview = ov; _chain = @[]; _props = props; _ivars = ivars; _instMethods = instM; _classMethods = classM;
         [self.tableView reloadData];
         return;
     }
@@ -1185,7 +1186,7 @@
     NSMutableArray *chain = [NSMutableArray new];
     Class cur = _cls;
     while (cur) { [chain addObject:NSStringFromClass(cur)]; cur = class_getSuperclass(cur); }
-    [ov addObject:@{@"k": @"继承链", @"v": [chain componentsJoinedByString:@" → "]}];
+    _chain = chain;
     _overview = ov;
 
     // 属性
@@ -1256,7 +1257,7 @@
     }
 }
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
-    switch (s) { case 0: return _overview.count; case 1: return _props.count; case 2: return _ivars.count; case 3: return _instMethods.count; default: return _classMethods.count; }
+    switch (s) { case 0: return _overview.count + _chain.count; case 1: return _props.count; case 2: return _ivars.count; case 3: return _instMethods.count; default: return _classMethods.count; }
 }
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
     UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"CDCell"];
@@ -1265,10 +1266,20 @@
     cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
     cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
     cell.textLabel.numberOfLines = 0;
+    cell.accessoryType = UITableViewCellAccessoryNone;
     if (ip.section == 0) {
-        NSDictionary *d = _overview[ip.row];
-        cell.textLabel.text = d[@"k"];
-        cell.detailTextLabel.text = d[@"v"];
+        if (ip.row < _overview.count) {
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            NSDictionary *d = _overview[ip.row];
+            cell.textLabel.text = d[@"k"];
+            cell.detailTextLabel.text = d[@"v"];
+        } else {
+            NSString *anc = _chain[ip.row - _overview.count];
+            BOOL isSelf = [anc isEqualToString:_className];
+            cell.accessoryType = isSelf ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.text = anc;
+            cell.detailTextLabel.text = isSelf ? @"（当前类）" : @"点按查看此类";
+        }
     } else if (ip.section == 1) {
         NSDictionary *d = _props[ip.row];
         cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", d[@"type"], d[@"name"]];
@@ -1295,7 +1306,16 @@
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
     if (ip.section < 3) {
-        // 概览/属性/成员变量：复制内容
+        // 概览：继承链祖先类可点跳转；其余复制内容
+        if (ip.section == 0 && ip.row >= _overview.count) {
+            NSString *anc = _chain[ip.row - _overview.count];
+            if (![anc isEqualToString:_className]) {
+                DHClassDetailVC *vc = [DHClassDetailVC new];
+                vc.className = anc;
+                [self.navigationController pushViewController:vc animated:YES];
+            }
+            return;
+        }
         NSString *text;
         if (ip.section == 0) { NSDictionary *d = _overview[ip.row]; text = [NSString stringWithFormat:@"%@: %@", d[@"k"], d[@"v"]]; }
         else if (ip.section == 1) { NSDictionary *d = _props[ip.row]; text = [NSString stringWithFormat:@"%@ %@ (%@)", d[@"type"], d[@"name"], d[@"attrs"]]; }
