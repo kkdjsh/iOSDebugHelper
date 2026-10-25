@@ -1419,6 +1419,7 @@ static NSString *DHReadableType(NSString *enc) {
     while (_aiInflight < 3 && _aiBatches.count > 0) {
         NSArray *b = _aiBatches.firstObject;
         [_aiBatches removeObjectAtIndex:0];
+        if (![b isKindOfClass:[NSArray class]]) continue;  // 防御：跳过非批次数组
         _aiInflight++;
         [self sendTransBatch:b retry:0];
     }
@@ -1428,7 +1429,13 @@ static NSString *DHReadableType(NSString *enc) {
             _aiRetried = YES;
             NSArray *miss = [_aiMissing copy];
             _aiMissing = [NSMutableArray new];
-            _aiBatches = [NSMutableArray arrayWithArray:miss];
+            // 漏翻项重新切批（每批是一个字符串数组），不能平铺进队列
+            _aiBatches = [NSMutableArray new];
+            NSInteger bs = 100;
+            for (NSInteger i = 0; i < miss.count; i += bs) {
+                NSInteger end = MIN(i + bs, miss.count);
+                [_aiBatches addObject:[miss subarrayWithRange:NSMakeRange(i, end - i)]];
+            }
             [self pumpTransBatches];
             return;
         }
@@ -1440,6 +1447,11 @@ static NSString *DHReadableType(NSString *enc) {
 }
 
 - (void)sendTransBatch:(NSArray *)batch retry:(NSInteger)retry {
+    // 只保留字符串元素，防御非法批次
+    NSMutableArray *items = [NSMutableArray new];
+    for (id x in batch) if ([x isKindOfClass:[NSString class]]) [items addObject:x];
+    if (items.count == 0) { _aiInflight--; [self pumpTransBatches]; return; }
+    batch = items;
     DHAIConfig *cfg = [DHAIManager sharedManager].config;
     NSString *apiURL = cfg.apiURL;
     if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
