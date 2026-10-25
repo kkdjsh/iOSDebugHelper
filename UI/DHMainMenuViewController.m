@@ -1148,12 +1148,14 @@
     NSArray *_ivars;          // 成员变量 @{@"name",@"offset",@"type"}
     NSArray *_instMethods;    // 实例方法名
     NSArray *_classMethods;   // 类方法名
+    BOOL _translating;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.className;
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"CDCell"];
+    UIBarButtonItem *tr = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"sparkles"] style:UIBarButtonItemStylePlain target:self action:@selector(translateMethods)];
+    self.navigationItem.rightBarButtonItem = tr;
     [self collectRuntime];
 }
 
@@ -1257,9 +1259,11 @@
     switch (s) { case 0: return _overview.count; case 1: return _props.count; case 2: return _ivars.count; case 3: return _instMethods.count; default: return _classMethods.count; }
 }
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"CDCell" forIndexPath:ip];
+    UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"CDCell"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"CDCell"];
     cell.textLabel.font = [UIFont systemFontOfSize:13];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
+    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
     cell.textLabel.numberOfLines = 0;
     if (ip.section == 0) {
         NSDictionary *d = _overview[ip.row];
@@ -1274,9 +1278,17 @@
         cell.textLabel.text = d[@"name"];
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%@  %@", d[@"offset"], d[@"type"]];
     } else {
-        NSString *sel = (ip.section == 3) ? _instMethods[ip.row] : _classMethods[ip.row];
-        cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", ip.section == 3 ? @"-" : @"+", sel];
-        cell.detailTextLabel.text = @"点按 HOOK";
+        BOOL isClass = (ip.section == 4);
+        NSString *sel = isClass ? _classMethods[ip.row] : _instMethods[ip.row];
+        cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", isClass ? @"+" : @"-", sel];
+        NSString *zh = [DHAIManager translationForKey:sel];
+        if (zh.length) {
+            cell.detailTextLabel.text = [@"译：" stringByAppendingString:zh];
+        } else {
+            Method m = class_getInstanceMethod(isClass ? object_getClass(_cls) : _cls, NSSelectorFromString(sel));
+            const char *enc = m ? method_getTypeEncoding(m) : NULL;
+            cell.detailTextLabel.text = enc ? [NSString stringWithUTF8String:enc] : @"点按 HOOK";
+        }
     }
     return cell;
 }
@@ -1310,6 +1322,72 @@
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)translateMethods {
+    if (_translating) return;
+    DHAIConfig *cfg = [DHAIManager sharedManager].config;
+    if (!cfg.apiKey.length) { [self toast:@"请先在AI配置中心填写API Key"]; return; }
+    if (!cfg.apiURL.length) { [self toast:@"请先在AI配置中心填写API地址"]; return; }
+
+    NSMutableArray *need = [NSMutableArray new];
+    NSMutableArray *allSel = [NSMutableArray arrayWithArray:_instMethods];
+    [allSel addObjectsFromArray:_classMethods];
+    for (NSString *sel in allSel) {
+        if (![DHAIManager translationForKey:sel].length) [need addObject:sel];
+    }
+    if (need.count == 0) { [self toast:@"本页方法均已翻译"]; [self.tableView reloadData]; return; }
+
+    _translating = YES;
+    [self toast:[NSString stringWithFormat:@"正在翻译 %ld 个方法…", (long)need.count]];
+
+    NSString *apiURL = cfg.apiURL;
+    if (![apiURL hasSuffix:@"/chat/completions"]) apiURL = [apiURL stringByAppendingString:@"/chat/completions"];
+    NSDictionary *body = @{
+        @"model": cfg.model ?: @"deepseek-chat",
+        @"messages": @[
+            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是一个 Objective-C 方法名数组，你需要把每个方法名翻译成简洁的中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译。不要输出任何其他内容。"},
+            @{@"role": @"user", @"content": [need componentsJoinedByString:@"\n"]},
+        ],
+        @"temperature": @0.3,
+        @"response_format": @{@"type": @"json_object"},
+    };
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiURL]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", cfg.apiKey] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 150;
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) s = weakSelf;
+            if (!s) return;
+            s->_translating = NO;
+            if (error) { [s toast:@"翻译失败，请重试"]; return; }
+            NSError *je;
+            id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+            if (je || ![outer isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译返回解析失败"]; return; }
+            id content = outer[@"choices"][0][@"message"][@"content"];
+            if (![content isKindOfClass:[NSString class]] || !content.length) { [s toast:@"翻译返回为空"]; return; }
+            NSError *pe;
+            id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pe];
+            if (pe || ![map isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译JSON解析失败"]; return; }
+            NSInteger ok = 0;
+            for (NSString *sel in need) {
+                id zh = map[sel];
+                if ([zh isKindOfClass:[NSString class]] && [(NSString *)zh length]) {
+                    [DHAIManager setTranslation:zh forKey:sel];
+                    ok++;
+                }
+            }
+            [DHAIManager flushCache];
+            [s.tableView reloadData];
+            [s toast:[NSString stringWithFormat:@"翻译完成 %ld/%ld", (long)ok, (long)need.count]];
+        });
+    }];
+    [task resume];
 }
 
 - (void)installHook:(NSString *)sel type:(DHHookReturnType)type isClass:(BOOL)isClass {
@@ -1923,12 +2001,22 @@
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
     if (!ip) return;
 
-    // 分组一级页：长按类名 → 智能适配批量Hook整个类
+    // 分组一级页：长按类名 → 菜单（查看类详情 / 批量Hook整个类）
     if (self.groupByClassMode) {
         if (ip.row >= self.displayClasses.count) return;
         NSString *cn = self.displayClasses[ip.row];
         NSArray *methods = self.classGroups[cn];
-        [self confirmBatchHookClass:cn methods:methods];
+        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:cn message:@"选择操作" preferredStyle:UIAlertControllerStyleActionSheet];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"查看类详情（属性/成员变量/方法）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            DHClassDetailVC *vc = [DHClassDetailVC new];
+            vc.className = cn;
+            [self.navigationController pushViewController:vc animated:YES];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"批量Hook整个类" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self confirmBatchHookClass:cn methods:methods];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:sheet animated:YES completion:nil];
         return;
     }
 
