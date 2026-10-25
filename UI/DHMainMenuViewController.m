@@ -1370,7 +1370,7 @@
             id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
             if (je || ![outer isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译返回解析失败"]; return; }
             id content = outer[@"choices"][0][@"message"][@"content"];
-            if (![content isKindOfClass:[NSString class]] || !content.length) { [s toast:@"翻译返回为空"]; return; }
+            if (![content isKindOfClass:[NSString class]] || ![(NSString *)content length]) { [s toast:@"翻译返回为空"]; return; }
             NSError *pe;
             id map = [NSJSONSerialization JSONObjectWithData:[content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pe];
             if (pe || ![map isKindOfClass:[NSDictionary class]]) { [s toast:@"翻译JSON解析失败"]; return; }
