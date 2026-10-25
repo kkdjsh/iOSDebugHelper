@@ -1136,6 +1136,206 @@
 }
 
 @end
+
+#pragma mark - 类详情控制器（runtime 反射：概览/属性/成员变量/实例方法/类方法/继承链）
+@interface DHClassDetailVC : UITableViewController
+@property (nonatomic, copy) NSString *className;
+@end
+@implementation DHClassDetailVC {
+    Class _cls;
+    NSArray *_overview;       // 概览行 @{@"k":.., @"v":..}
+    NSArray *_props;          // 属性 @{@"name",@"type",@"attrs"}
+    NSArray *_ivars;          // 成员变量 @{@"name",@"offset",@"type"}
+    NSArray *_instMethods;    // 实例方法名
+    NSArray *_classMethods;   // 类方法名
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = self.className;
+    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"CDCell"];
+    [self collectRuntime];
+}
+
+- (void)collectRuntime {
+    _cls = NSClassFromString(_className);
+    NSMutableArray *ov = [NSMutableArray new];
+    NSMutableArray *props = [NSMutableArray new];
+    NSMutableArray *ivars = [NSMutableArray new];
+    NSMutableArray *instM = [NSMutableArray new];
+    NSMutableArray *classM = [NSMutableArray new];
+
+    if (!_cls) {
+        [ov addObject:@{@"k": @"提示", @"v": @"运行时未找到该类（可能未加载）"}];
+        _overview = ov; _props = props; _ivars = ivars; _instMethods = instM; _classMethods = classM;
+        [self.tableView reloadData];
+        return;
+    }
+
+    // 概览：实例大小 / 镜像 / 继承链
+    [ov addObject:@{@"k": @"Instance Size", @"v": [NSString stringWithFormat:@"%zu bytes", class_getInstanceSize(_cls)]}];
+    const char *img = class_getImageName(_cls);
+    if (img) {
+        NSString *path = [NSString stringWithUTF8String:img];
+        NSString *shortName = path.lastPathComponent;
+        [ov addObject:@{@"k": @"Image", @"v": shortName}];
+    }
+    NSMutableArray *chain = [NSMutableArray new];
+    Class cur = _cls;
+    while (cur) { [chain addObject:NSStringFromClass(cur)]; cur = class_getSuperclass(cur); }
+    [ov addObject:@{@"k": @"继承链", @"v": [chain componentsJoinedByString:@" → "]}];
+    _overview = ov;
+
+    // 属性
+    unsigned int pc = 0;
+    objc_property_t *pa = class_copyPropertyList(_cls, &pc);
+    for (unsigned int i = 0; i < pc; i++) {
+        objc_property_t p = pa[i];
+        NSString *name = [NSString stringWithUTF8String:property_getName(p)];
+        unsigned int ac = 0;
+        objc_property_attribute_t *at = property_copyAttributeList(p, &ac);
+        NSString *type = @""; NSMutableString *attr = [NSMutableString new];
+        for (unsigned int j = 0; j < ac; j++) {
+            NSString *an = [NSString stringWithUTF8String:at[j].name];
+            NSString *av = at[j].value ? [NSString stringWithUTF8String:at[j].value] : @"";
+            if ([an isEqualToString:@"T"]) type = [av stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"@\""]];
+            else if ([an isEqualToString:@"R"]) [attr appendString:@"readonly "];
+            else if ([an isEqualToString:@"C"]) [attr appendString:@"copy "];
+            else if ([an isEqualToString:@"&"]) [attr appendString:@"strong "];
+            else if ([an isEqualToString:@"W"]) [attr appendString:@"weak "];
+            else if ([an isEqualToString:@"N"]) [attr appendString:@"nonatomic "];
+            else if ([an isEqualToString:@"D"]) [attr appendString:@"dynamic "];
+        }
+        if (at) free(at);
+        [props addObject:@{@"name": name, @"type": type, @"attrs": [attr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]}];
+    }
+    if (pa) free(pa);
+    _props = props;
+
+    // 成员变量
+    unsigned int ic = 0;
+    Ivar *iv = class_copyIvarList(_cls, &ic);
+    for (unsigned int i = 0; i < ic; i++) {
+        Ivar v = iv[i];
+        NSString *name = [NSString stringWithUTF8String:ivar_getName(v)];
+        const char *te = ivar_getTypeEncoding(v);
+        NSString *type = te ? [NSString stringWithUTF8String:te] : @"";
+        [ivars addObject:@{@"name": name, @"offset": [NSString stringWithFormat:@"offset %ld", (long)ivar_getOffset(v)], @"type": type}];
+    }
+    if (iv) free(iv);
+    _ivars = ivars;
+
+    // 实例方法（仅本类声明）
+    unsigned int mc = 0;
+    Method *ms = class_copyMethodList(_cls, &mc);
+    for (unsigned int i = 0; i < mc; i++) [instM addObject:NSStringFromSelector(method_getName(ms[i]))];
+    if (ms) free(ms);
+    _instMethods = [instM sortedArrayUsingSelector:@selector(compare:)];
+
+    // 类方法（元类）
+    Class meta = object_getClass(_cls);
+    unsigned int mmc = 0;
+    Method *mms = class_copyMethodList(meta, &mmc);
+    for (unsigned int i = 0; i < mmc; i++) [classM addObject:NSStringFromSelector(method_getName(mms[i]))];
+    if (mms) free(mms);
+    _classMethods = [classM sortedArrayUsingSelector:@selector(compare:)];
+
+    [self.tableView reloadData];
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 5; }
+- (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
+    switch (s) {
+        case 0: return @"概览 (OVERVIEW)";
+        case 1: return [NSString stringWithFormat:@"属性 PROPERTIES (%ld)", (long)_props.count];
+        case 2: return [NSString stringWithFormat:@"成员变量 IVARS (%ld)", (long)_ivars.count];
+        case 3: return [NSString stringWithFormat:@"实例方法 METHODS (%ld)", (long)_instMethods.count];
+        default: return [NSString stringWithFormat:@"类方法 CLASS METHODS (%ld)", (long)_classMethods.count];
+    }
+}
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+    switch (s) { case 0: return _overview.count; case 1: return _props.count; case 2: return _ivars.count; case 3: return _instMethods.count; default: return _classMethods.count; }
+}
+- (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"CDCell" forIndexPath:ip];
+    cell.textLabel.font = [UIFont systemFontOfSize:13];
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
+    cell.textLabel.numberOfLines = 0;
+    if (ip.section == 0) {
+        NSDictionary *d = _overview[ip.row];
+        cell.textLabel.text = d[@"k"];
+        cell.detailTextLabel.text = d[@"v"];
+    } else if (ip.section == 1) {
+        NSDictionary *d = _props[ip.row];
+        cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", d[@"type"], d[@"name"]];
+        cell.detailTextLabel.text = d[@"attrs"];
+    } else if (ip.section == 2) {
+        NSDictionary *d = _ivars[ip.row];
+        cell.textLabel.text = d[@"name"];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%@  %@", d[@"offset"], d[@"type"]];
+    } else {
+        NSString *sel = (ip.section == 3) ? _instMethods[ip.row] : _classMethods[ip.row];
+        cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", ip.section == 3 ? @"-" : @"+", sel];
+        cell.detailTextLabel.text = @"点按 HOOK";
+    }
+    return cell;
+}
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:YES];
+    if (ip.section < 3) {
+        // 概览/属性/成员变量：复制内容
+        NSString *text;
+        if (ip.section == 0) { NSDictionary *d = _overview[ip.row]; text = [NSString stringWithFormat:@"%@: %@", d[@"k"], d[@"v"]]; }
+        else if (ip.section == 1) { NSDictionary *d = _props[ip.row]; text = [NSString stringWithFormat:@"%@ %@ (%@)", d[@"type"], d[@"name"], d[@"attrs"]]; }
+        else { NSDictionary *d = _ivars[ip.row]; text = [NSString stringWithFormat:@"%@  %@  %@", d[@"name"], d[@"offset"], d[@"type"]]; }
+        UIPasteboard.generalPasteboard.string = text;
+        [self toast:@"已复制"];
+        return;
+    }
+    NSString *sel = (ip.section == 3) ? _instMethods[ip.row] : _classMethods[ip.row];
+    BOOL isClass = (ip.section == 4);
+    [self presentHookForSel:sel isClass:isClass];
+}
+
+- (void)presentHookForSel:(NSString *)sel isClass:(BOOL)isClass {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"[%@ %@]", _className, sel] message:@"选择 HOOK 返回值" preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray *defs = @[ @[@"返回 YES/TRUE", @(DHHookReturnTrue)], @[@"返回 NO/FALSE", @(DHHookReturnFalse)], @[@"返回 nil", @(DHHookReturnNil)], @[@"返回 0", @(DHHookReturnZero)] ];
+    for (NSArray *d in defs) {
+        [sheet addAction:[UIAlertAction actionWithTitle:d[0] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self installHook:sel type:[d[1] integerValue] isClass:isClass];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"复制方法名" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        UIPasteboard.generalPasteboard.string = sel; [self toast:@"已复制"];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)installHook:(NSString *)sel type:(DHHookReturnType)type isClass:(BOOL)isClass {
+    DHHookInfo *h = [DHHookInfo new];
+    h.className = _className;
+    h.selectorName = sel;
+    h.returnType = type;
+    h.enabled = YES;
+    h.isClassMethod = isClass;
+    if ([sel hasPrefix:@"set"]) h.realReturnType = @"void";
+    else if ([sel hasPrefix:@"is"] || [sel hasPrefix:@"has"] || [sel hasPrefix:@"should"]) h.realReturnType = @"BOOL";
+    else h.realReturnType = @"id";
+    h.argCount = [[sel componentsSeparatedByString:@":"] count] - 1;
+    [[DHHookManager sharedManager] addHook:h];
+    [[DHHookManager sharedManager] saveHooks];
+    [[DHHookManager sharedManager] applyHook:h];
+    [self toast:[NSString stringWithFormat:@"已HOOK %@", sel]];
+}
+
+- (void)toast:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:a animated:YES completion:nil];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [a dismissViewControllerAnimated:YES completion:nil]; });
+}
+@end
+
 #pragma mark - 扫描结果控制器（带搜索、分组、Hook、区间复制、缓存）
 @interface DHScanResultVC : UITableViewController <UISearchBarDelegate>
 @property (nonatomic, copy) NSArray<DHScannerResult *> *allResults;
@@ -1146,6 +1346,7 @@
 @property (nonatomic, copy) NSArray<NSString *> *displayClasses; // 分组模式当前可见类名（已搜索过滤）
 @property (nonatomic, copy) NSString *targetClassName; // 外部跳转定位高亮的类名
 @property (nonatomic, copy) NSString *targetMethodName; // 外部跳转定位到类内具体方法
+@property (nonatomic, copy) NSString *detailClassName; // 非空=本页是某类下钻，显示"类详情"入口
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isTranslating;           // 防重入
 @property (nonatomic, assign) NSInteger completedSliceCount; // 已完成批计数（用于周期落盘）
@@ -1231,6 +1432,12 @@
     } else {
         [self showToast:[NSString stringWithFormat:@"扫描结果中未找到方法 %@", methodName]];
     }
+}
+
+- (void)openClassDetail {
+    DHClassDetailVC *vc = [DHClassDetailVC new];
+    vc.className = self.detailClassName;
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)viewDidLoad {
@@ -1362,6 +1569,12 @@
     spacer.width = 8;
     
     self.navigationItem.rightBarButtonItems = @[copyItem, spacer, patchItem, spacer, boltItem, spacer, sparkItem, spacer, eyeItem];
+
+    // 类下钻页：左侧加"类详情"入口（属性/成员变量/类方法/继承链）
+    if (self.detailClassName.length) {
+        UIBarButtonItem *detailItem = [[UIBarButtonItem alloc] initWithTitle:@"类详情" style:UIBarButtonItemStylePlain target:self action:@selector(openClassDetail)];
+        self.navigationItem.leftBarButtonItem = detailItem;
+    }
 
     // 键盘上加完成按钮
     UIToolbar *tool = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 0, 44)];
@@ -1686,6 +1899,7 @@
         sub.allResults = methods;
         sub.groupByClassMode = NO;
         sub.title = cn;
+        sub.detailClassName = cn;
         [self.navigationController pushViewController:sub animated:YES];
         return;
     }
