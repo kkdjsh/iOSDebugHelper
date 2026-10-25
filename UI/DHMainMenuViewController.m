@@ -1317,11 +1317,16 @@ static NSString *DHReadableType(NSString *enc) {
     } else if (ip.section == 1) {
         NSDictionary *d = _props[ip.row];
         cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", d[@"type"], d[@"name"]];
-        cell.detailTextLabel.text = d[@"attrs"];
+        NSString *zh = [DHAIManager translationForKey:d[@"name"]];
+        NSString *attr = d[@"attrs"];
+        if (zh.length) cell.detailTextLabel.text = attr.length ? [NSString stringWithFormat:@"译：%@ ｜ %@", zh, attr] : [@"译：" stringByAppendingString:zh];
+        else cell.detailTextLabel.text = attr;
     } else if (ip.section == 2) {
         NSDictionary *d = _ivars[ip.row];
         cell.textLabel.text = d[@"name"];
-        cell.detailTextLabel.text = [NSString stringWithFormat:@"%@  %@", d[@"offset"], d[@"type"]];
+        NSString *zh = [DHAIManager translationForKey:d[@"name"]];
+        NSString *raw = [NSString stringWithFormat:@"%@  %@", d[@"offset"], d[@"type"]];
+        cell.detailTextLabel.text = zh.length ? [NSString stringWithFormat:@"译：%@ ｜ %@", zh, raw] : raw;
     } else {
         BOOL isClass = (ip.section == 4);
         NSString *sel = isClass ? _classMethods[ip.row] : _instMethods[ip.row];
@@ -1386,11 +1391,13 @@ static NSString *DHReadableType(NSString *enc) {
 
     NSMutableArray *allSel = [NSMutableArray arrayWithArray:_instMethods];
     [allSel addObjectsFromArray:_classMethods];
+    for (NSDictionary *p in _props) [allSel addObject:p[@"name"]];
+    for (NSDictionary *v in _ivars) [allSel addObject:v[@"name"]];
     NSMutableArray *need = [NSMutableArray new];
     for (NSString *sel in allSel) {
         if (![DHAIManager translationForKey:sel].length) [need addObject:sel];
     }
-    if (need.count == 0) { [self toast:@"本页方法均已翻译"]; [self.tableView reloadData]; return; }
+    if (need.count == 0) { [self toast:@"本页均已翻译"]; [self.tableView reloadData]; return; }
 
     _translating = YES;
     _aiRetried = NO;
@@ -1439,7 +1446,7 @@ static NSString *DHReadableType(NSString *enc) {
     NSDictionary *body = @{
         @"model": cfg.model ?: @"deepseek-chat",
         @"messages": @[
-            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是 Objective-C 方法名数组，把每个方法名翻译成简洁中文意思。严格返回 JSON 对象，key 是原方法名，value 是中文翻译，每个 key 都必须给出、不要遗漏，不要输出其他内容。"},
+            @{@"role": @"system", @"content": @"你是 iOS 逆向工程助手。输入是 Objective-C 方法名/属性名/成员变量名列表，把每个名字翻译成简洁中文意思（说明其含义/用途）。严格返回 JSON 对象，key 是原名字，value 是中文翻译，每个 key 都必须给出、不要遗漏，不要输出其他内容。"},
             @{@"role": @"user", @"content": [batch componentsJoinedByString:@"\n"]},
         ],
         @"temperature": @0.3,
@@ -1465,7 +1472,13 @@ static NSString *DHReadableType(NSString *enc) {
             NSError *je;
             id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
             if (je || ![outer isKindOfClass:[NSDictionary class]]) { fail(); return; }
-            id content = outer[@"choices"][0][@"message"][@"content"];
+            id choices = outer[@"choices"];
+            if (![choices isKindOfClass:[NSArray class]] || [choices count] == 0) { fail(); return; }
+            id firstChoice = choices[0];
+            if (![firstChoice isKindOfClass:[NSDictionary class]]) { fail(); return; }
+            id message = firstChoice[@"message"];
+            if (![message isKindOfClass:[NSDictionary class]]) { fail(); return; }
+            id content = message[@"content"];
             if (![content isKindOfClass:[NSString class]] || ![(NSString *)content length]) { fail(); return; }
             NSError *pe;
             id map = [NSJSONSerialization JSONObjectWithData:[(NSString *)content dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pe];
@@ -1916,7 +1929,13 @@ static NSString *DHReadableType(NSString *enc) {
         NSError *jsonErr;
         id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
         if (jsonErr || ![outer isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
-        id contentRaw = outer[@"choices"][0][@"message"][@"content"];
+        id choices = outer[@"choices"];
+        if (![choices isKindOfClass:[NSArray class]] || [choices count] == 0) { failBatch(); return; }
+        id firstChoice = choices[0];
+        if (![firstChoice isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
+        id message = firstChoice[@"message"];
+        if (![message isKindOfClass:[NSDictionary class]]) { failBatch(); return; }
+        id contentRaw = message[@"content"];
         if (![contentRaw isKindOfClass:[NSString class]] || ![(NSString *)contentRaw length]) { failBatch(); return; }
         NSError *pErr;
         id map = [NSJSONSerialization JSONObjectWithData:[(NSString *)contentRaw dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&pErr];
